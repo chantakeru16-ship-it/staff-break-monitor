@@ -1,6 +1,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import pytz
+
+TIMEZONE = pytz.timezone("America/Vancouver")
+
+def now_local():
+    return datetime.now(TIMEZONE)
+
+def today_local():
+    return now_local().strftime("%Y-%m-%d")
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -164,7 +173,7 @@ if "active_breaks" not in st.session_state:
 if "staff_df" not in st.session_state:
     st.session_state.staff_df = load_staff()
 
-def today_str(): return date.today().strftime("%Y-%m-%d")
+# today_str now uses local timezone
 
 staff_df = st.session_state.staff_df
 logs_df  = load_logs()
@@ -180,7 +189,7 @@ def get_shift_metrics(shift_name):
     total   = len(shift_staff)
     on_brk  = sum(1 for k in st.session_state.active_breaks if k.startswith(f"{shift_name}_"))
     working = total - on_brk
-    today_records = logs_df[(logs_df["Date"] == today_str()) & (logs_df["Shift"] == shift_name)] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
+    today_records = logs_df[(logs_df["Date"] == today_local()) & (logs_df["Shift"] == shift_name)] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
     avg = round(pd.to_numeric(today_records["Duration (min)"], errors="coerce").mean(), 1) if not today_records.empty else 0
     return total, working, on_brk, avg
 
@@ -245,16 +254,16 @@ def render_shift(shift_name):
         if on:
             if col_btn.button("Break Out", key=f"out_{key_id}"):
                 break_in_dt  = st.session_state.active_breaks.pop(key_id)
-                break_out_dt = datetime.now()
+                break_out_dt = now_local()
                 duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
-                save_log(staff, position, shift_name, today_str(),
+                save_log(staff, position, shift_name, today_local(),
                          break_in_dt.strftime("%H:%M:%S"),
                          break_out_dt.strftime("%H:%M:%S"), duration)
                 st.toast(f"✅ {staff} back ({duration} min)")
                 st.rerun()
         else:
             if col_btn.button("Break In", key=f"in_{key_id}"):
-                st.session_state.active_breaks[key_id] = datetime.now()
+                st.session_state.active_breaks[key_id] = now_local()
                 st.toast(f"☕ {staff} on break")
                 st.rerun()
         st.divider()
@@ -291,9 +300,9 @@ with tab_logs:
         except AttributeError:
             styled = logs.sort_values("Break In", ascending=False).style.applymap(highlight_long, subset=["Duration (min)"]).format({"Duration (min)": "{:.1f}"})
         st.dataframe(styled, use_container_width=True, hide_index=True)
-        st.download_button("⬇️ Download CSV", logs.to_csv(index=False).encode(), f"break_log_{today_str()}.csv", "text/csv")
+        st.download_button("⬇️ Download CSV", logs.to_csv(index=False).encode(), f"break_log_{today_local()}.csv", "text/csv")
     if not logs_df.empty and "Date" in logs_df.columns:
-        today_logs = logs_df[logs_df["Date"] == today_str()]
+        today_logs = logs_df[logs_df["Date"] == today_local()]
         if not today_logs.empty:
             st.markdown("#### Today's Summary")
             summary = today_logs.groupby(["Staff","Position","Shift"]).agg(
