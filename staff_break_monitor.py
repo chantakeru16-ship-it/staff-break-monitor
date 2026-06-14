@@ -208,7 +208,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
-    "☀️ Morning", "🌤️ Afternoon", "📋 Logs", "👥 Staff"
+    "☀️ Morning Shift", "🌤️ Afternoon Shift", "📋 Break Log", "👥 Manage Staff"
 ])
 
 def render_shift(shift_name):
@@ -243,7 +243,7 @@ def render_shift(shift_name):
             unsafe_allow_html=True
         )
         if on:
-            if col_btn.button("Out ✅", key=f"out_{key_id}"):
+            if col_btn.button("Break Out", key=f"out_{key_id}"):
                 break_in_dt  = st.session_state.active_breaks.pop(key_id)
                 break_out_dt = datetime.now()
                 duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
@@ -253,7 +253,7 @@ def render_shift(shift_name):
                 st.toast(f"✅ {staff} back ({duration} min)")
                 st.rerun()
         else:
-            if col_btn.button("In ☕", key=f"in_{key_id}"):
+            if col_btn.button("Break In", key=f"in_{key_id}"):
                 st.session_state.active_breaks[key_id] = datetime.now()
                 st.toast(f"☕ {staff} on break")
                 st.rerun()
