@@ -123,7 +123,6 @@ def load_staff():
         st.error(f"Error loading staff: {e}")
         return pd.DataFrame(columns=["Name","Position","Shift"])
 
-@st.cache_data(ttl=300)
 def load_logs():
     try:
         sheet = get_sheet("Break Logs")
@@ -165,7 +164,6 @@ def delete_staff_member(name):
 def save_log(staff, position, shift, date_str, break_in, break_out, duration):
     sheet = get_sheet("Break Logs")
     sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
-    load_logs.clear()
 
 # ── Session state ─────────────────────────────────────────────────────────────
 if "active_breaks" not in st.session_state:
@@ -279,7 +277,6 @@ with tab_afternoon:
 with tab_logs:
     st.subheader("📋 Break Log")
     if st.button("🔄 Refresh Logs"):
-        load_logs.clear()
         st.rerun()
     filter_staff = st.selectbox("Filter by staff", ["All"] + (staff_df["Name"].tolist() if not staff_df.empty else []))
     filter_shift = st.selectbox("Filter by shift", ["All","Morning","Afternoon"])
