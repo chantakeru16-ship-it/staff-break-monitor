@@ -4,40 +4,77 @@ from datetime import datetime, date
 import gspread
 from google.oauth2.service_account import Credentials
 
-st.set_page_config(page_title="Staff Break Monitor", page_icon="⏱️", layout="centered")
+st.set_page_config(page_title="Staff Break Monitor", page_icon="⏱️", layout="wide")
 
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     .main { background-color: #F7F8FA; }
+
     .page-header {
         background: linear-gradient(135deg, #1E3A5F 0%, #2E6DA4 100%);
-        color: white; padding: 20px 20px; border-radius: 14px; margin-bottom: 20px;
+        color: white; padding: 28px 32px; border-radius: 14px; margin-bottom: 28px;
     }
-    .page-header h1 { margin: 0; font-size: 1.4rem; font-weight: 700; }
-    .page-header p  { margin: 4px 0 0; opacity: 0.8; font-size: 0.8rem; }
-    .shift-header { font-size: 1rem; font-weight: 700; color: #1E3A5F; margin: 10px 0 8px 0; }
+    .page-header h1 { margin: 0; font-size: 1.8rem; font-weight: 700; }
+    .page-header p  { margin: 6px 0 0; opacity: 0.8; font-size: 0.9rem; }
+
+    .shift-header { font-size: 1.1rem; font-weight: 700; color: #1E3A5F; margin: 10px 0 8px 0; }
+
     .metric-card {
-        background: white; border-radius: 10px; padding: 12px 8px;
-        box-shadow: 0 1px 4px rgba(0,0,0,.08); text-align: center; margin-bottom: 4px;
+        background: white; border-radius: 12px; padding: 20px 24px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.08); text-align: center; margin-bottom: 8px;
     }
-    .metric-number { font-size: 1.5rem; font-weight: 700; color: #1E3A5F; }
-    .metric-label  { font-size: 0.68rem; color: #6B7280; font-weight: 500; margin-top: 2px; }
-    .badge-on-break { background: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
-    .badge-working  { background: #D1FAE5; color: #065F46; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
-    .position-badge { background: #EFF6FF; color: #1D4ED8; padding: 2px 6px; border-radius: 20px; font-size: 0.68rem; font-weight: 500; }
-    .stButton > button { border-radius: 8px !important; font-weight: 600 !important; font-size: 0.8rem !important; padding: 0.3rem 0.6rem !important; width: 100% !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 2px; overflow-x: auto; }
-    .stTabs [data-baseweb="tab"] { font-size: 0.75rem !important; padding: 6px 8px !important; white-space: nowrap; }
-    .block-container { padding: 1rem 0.8rem !important; }
+    .metric-number { font-size: 2rem; font-weight: 700; color: #1E3A5F; }
+    .metric-label  { font-size: 0.82rem; color: #6B7280; font-weight: 500; margin-top: 4px; }
+
+    .badge-on-break { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+    .badge-working  { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+    .position-badge { background: #EFF6FF; color: #1D4ED8; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 500; }
+
+    .stButton > button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 0.85rem !important;
+        padding: 0.45rem 1rem !important;
+        width: 100% !important;
+    }
+
+    .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
+    .stTabs [data-baseweb="tab"] { white-space: nowrap; font-weight: 600 !important; }
+
+    /* ── MOBILE: screens under 768px ── */
+    @media (max-width: 768px) {
+        .page-header { padding: 16px 16px; }
+        .page-header h1 { font-size: 1.2rem; }
+        .page-header p  { font-size: 0.75rem; }
+        .metric-card { padding: 12px 8px; }
+        .metric-number { font-size: 1.4rem; }
+        .metric-label  { font-size: 0.65rem; }
+        .stTabs [data-baseweb="tab"] { font-size: 0.72rem !important; padding: 6px 8px !important; }
+        .block-container { padding: 1rem 0.5rem !important; }
+    }
+
+    /* ── TABLET & DESKTOP: screens over 768px ── */
+    @media (min-width: 769px) {
+        .block-container { padding: 2rem 3rem !important; }
+    }
 </style>
+
+<script>
+    // Auto-detect screen width and store in session
+    const width = window.innerWidth;
+    const isMobile = width < 768;
+    window.parent.postMessage({type: 'streamlit:setComponentValue', value: isMobile}, '*');
+</script>
 """, unsafe_allow_html=True)
 
+# ── Constants ─────────────────────────────────────────────────────────────────
 SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
 POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew"]
 TOP_POSITIONS = ["Manager", "Supervisor"]
 
+# ── Google Sheets ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_spreadsheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
@@ -121,6 +158,7 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
     sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
     load_logs.clear()
 
+# ── Session state ─────────────────────────────────────────────────────────────
 if "active_breaks" not in st.session_state:
     st.session_state.active_breaks = {}
 if "staff_df" not in st.session_state:
@@ -131,8 +169,10 @@ def today_str(): return date.today().strftime("%Y-%m-%d")
 staff_df = st.session_state.staff_df
 logs_df  = load_logs()
 
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-header"><h1>⏱️ Staff Break Monitor</h1><p>Track break-in and break-out times for your team in real time.</p></div>', unsafe_allow_html=True)
 
+# ── Metrics ───────────────────────────────────────────────────────────────────
 def get_shift_metrics(shift_name):
     if staff_df.empty or "Shift" not in staff_df.columns:
         return 0, 0, 0, 0
@@ -147,27 +187,29 @@ def get_shift_metrics(shift_name):
 m_total, m_working, m_break, m_avg = get_shift_metrics("Morning")
 a_total, a_working, a_break, a_avg = get_shift_metrics("Afternoon")
 
+# Morning — 2 cols on mobile, 4 cols on tablet/desktop via CSS
 st.markdown('<div class="shift-header">☀️ Morning Shift</div>', unsafe_allow_html=True)
-mc1, mc2 = st.columns(2)
+mc1, mc2, mc3, mc4 = st.columns(4)
 mc1.markdown(f'<div class="metric-card"><div class="metric-number">{m_total}</div><div class="metric-label">Total Staff</div></div>', unsafe_allow_html=True)
 mc2.markdown(f'<div class="metric-card"><div class="metric-number">{m_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
-mc3, mc4 = st.columns(2)
 mc3.markdown(f'<div class="metric-card"><div class="metric-number">{m_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
 mc4.markdown(f'<div class="metric-card"><div class="metric-number">{m_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown('<div class="shift-header">🌤️ Afternoon Shift</div>', unsafe_allow_html=True)
-ac1, ac2 = st.columns(2)
+ac1, ac2, ac3, ac4 = st.columns(4)
 ac1.markdown(f'<div class="metric-card"><div class="metric-number">{a_total}</div><div class="metric-label">Total Staff</div></div>', unsafe_allow_html=True)
 ac2.markdown(f'<div class="metric-card"><div class="metric-number">{a_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
-ac3, ac4 = st.columns(2)
 ac3.markdown(f'<div class="metric-card"><div class="metric-number">{a_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
 ac4.markdown(f'<div class="metric-card"><div class="metric-number">{a_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs(["☀️ Morning", "🌤️ Afternoon", "📋 Logs", "👥 Staff"])
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
+    "☀️ Morning", "🌤️ Afternoon", "📋 Logs", "👥 Staff"
+])
 
 def render_shift(shift_name):
     if st.button(f"🔄 Refresh", key=f"refresh_{shift_name}"):
@@ -180,26 +222,34 @@ def render_shift(shift_name):
     if "Shift" not in current_staff.columns:
         st.warning("Shift column missing. Please re-save staff in the Staff tab.")
         return
-    shift_staff = current_staff[current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()].copy()
+    shift_staff = current_staff[
+        current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()
+    ].copy()
     if shift_staff.empty:
         st.info(f"No staff assigned to {shift_name} Shift.")
         return
     for _, row in shift_staff.iterrows():
-        staff    = str(row.get("Name","")).strip()
-        position = str(row.get("Position","")).strip()
-        key_id   = f"{shift_name}_{staff}"
-        on       = key_id in st.session_state.active_breaks
-        badge    = '<span class="badge-on-break">On Break</span>' if on else '<span class="badge-working">Working</span>'
+        staff     = str(row.get("Name","")).strip()
+        position  = str(row.get("Position","")).strip()
+        key_id    = f"{shift_name}_{staff}"
+        on        = key_id in st.session_state.active_breaks
+        badge     = '<span class="badge-on-break">On Break</span>' if on else '<span class="badge-working">Working</span>'
         pos_badge = f'<span class="position-badge">{position}</span>'
         start_time = f"since {st.session_state.active_breaks[key_id].strftime('%H:%M')}" if on else ""
         col_info, col_btn = st.columns([3, 1])
-        col_info.markdown(f"**{staff}**<br>{badge} {pos_badge}<br><span style='font-size:0.72rem;color:#9CA3AF'>{start_time}</span>", unsafe_allow_html=True)
+        col_info.markdown(
+            f"**{staff}**<br>{badge} {pos_badge}<br>"
+            f"<span style='font-size:0.75rem;color:#9CA3AF'>{start_time}</span>",
+            unsafe_allow_html=True
+        )
         if on:
             if col_btn.button("Out ✅", key=f"out_{key_id}"):
                 break_in_dt  = st.session_state.active_breaks.pop(key_id)
                 break_out_dt = datetime.now()
                 duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
-                save_log(staff, position, shift_name, today_str(), break_in_dt.strftime("%H:%M:%S"), break_out_dt.strftime("%H:%M:%S"), duration)
+                save_log(staff, position, shift_name, today_str(),
+                         break_in_dt.strftime("%H:%M:%S"),
+                         break_out_dt.strftime("%H:%M:%S"), duration)
                 st.toast(f"✅ {staff} back ({duration} min)")
                 st.rerun()
         else:
@@ -246,7 +296,10 @@ with tab_logs:
         today_logs = logs_df[logs_df["Date"] == today_str()]
         if not today_logs.empty:
             st.markdown("#### Today's Summary")
-            summary = today_logs.groupby(["Staff","Position","Shift"]).agg(Breaks=("Duration (min)","count"),Total_Minutes=("Duration (min)","sum")).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
+            summary = today_logs.groupby(["Staff","Position","Shift"]).agg(
+                Breaks=("Duration (min)","count"),
+                Total_Minutes=("Duration (min)","sum")
+            ).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
             st.dataframe(summary, use_container_width=True, hide_index=True)
 
 with tab_manage:
