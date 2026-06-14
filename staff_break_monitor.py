@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Staff Break Monitor", page_icon="⏱️", layout="wide")
 
@@ -27,20 +29,54 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
+
+@st.cache_resource
+def get_gsheet():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = Credentials.from_service_account_info(dict(creds_dict), scopes=scopes)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(SPREADSHEET_ID).sheet1
+    return sheet
+
+def load_logs():
+    try:
+        sheet = get_gsheet()
+        data = sheet.get_all_records()
+        if data:
+            return pd.DataFrame(data)
+        else:
+            return pd.DataFrame(columns=["Staff","Date","Break In","Break Out","Duration (min)"])
+    except Exception as e:
+        st.error(f"Error loading logs: {e}")
+        return pd.DataFrame(columns=["Staff","Date","Break In","Break Out","Duration (min)"])
+
+def save_log(staff, date_str, break_in, break_out, duration):
+    try:
+        sheet = get_gsheet()
+        sheet.append_row([staff, date_str, break_in, break_out, duration])
+    except Exception as e:
+        st.error(f"Error saving log: {e}")
+
 DEFAULT_STAFF = ["Alice Johnson", "Bob Martinez", "Carol Lee", "David Nguyen", "Emma Wilson", "Frank Chen"]
 
 if "staff_list"    not in st.session_state: st.session_state.staff_list    = DEFAULT_STAFF.copy()
-if "logs"          not in st.session_state: st.session_state.logs          = pd.DataFrame(columns=["Staff","Date","Break In","Break Out","Duration (min)"])
 if "active_breaks" not in st.session_state: st.session_state.active_breaks = {}
 
 def today_str(): return date.today().strftime("%Y-%m-%d")
 
 st.markdown('<div class="page-header"><h1>⏱️ Staff Break Monitor</h1><p>Track break-in and break-out times for your team in real time.</p></div>', unsafe_allow_html=True)
 
+logs_df = load_logs()
+
 total_staff   = len(st.session_state.staff_list)
 on_break      = len(st.session_state.active_breaks)
 working       = total_staff - on_break
-today_records = st.session_state.logs[st.session_state.logs["Date"] == today_str()] if not st.session_state.logs.empty else pd.DataFrame()
+today_records = logs_df[logs_df["Date"] == today_str()] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
 avg_duration  = round(today_records["Duration (min)"].mean(), 1) if not today_records.empty and "Duration (min)" in today_records.columns else 0
 
 c1, c2, c3, c4 = st.columns(4)
@@ -63,8 +99,7 @@ with left:
                 break_in_dt  = st.session_state.active_breaks.pop(staff)
                 break_out_dt = datetime.now()
                 duration     = round((break_out_dt - break_in_dt).total_seconds() / 60, 1)
-                new_row = pd.DataFrame([{"Staff": staff, "Date": today_str(), "Break In": break_in_dt.strftime("%H:%M:%S"), "Break Out": break_out_dt.strftime("%H:%M:%S"), "Duration (min)": duration}])
-                st.session_state.logs = pd.concat([st.session_state.logs, new_row], ignore_index=True)
+                save_log(staff, today_str(), break_in_dt.strftime("%H:%M:%S"), break_out_dt.strftime("%H:%M:%S"), duration)
                 st.toast(f"✅ {staff} returned from break ({duration} min)")
                 st.rerun()
         else:
@@ -92,18 +127,28 @@ with left:
 
 with right:
     st.subheader("📋 Break Log")
+
+    if st.button("🔄 Refresh Logs"):
+        st.cache_resource.clear()
+        st.rerun()
+
     filter_col1, filter_col2 = st.columns(2)
     filter_staff = filter_col1.selectbox("Filter by staff", ["All"] + st.session_state.staff_list)
     filter_date  = filter_col2.date_input("Filter by date", value=date.today())
-    logs = st.session_state.logs.copy()
-    if not logs.empty:
+
+    logs = logs_df.copy()
+    if not logs.empty and "Date" in logs.columns:
         if filter_staff != "All": logs = logs[logs["Staff"] == filter_staff]
         logs = logs[logs["Date"] == str(filter_date)]
+
     if logs.empty:
         st.info("No break records found for the selected filters.")
     else:
         def highlight_long(val):
-            return f"background-color: {'#FEE2E2' if float(val) > 30 else ''}"
+            try:
+                return f"background-color: {'#FEE2E2' if float(val) > 30 else ''}"
+            except:
+                return ""
         try:
             styled = logs.sort_values("Break In", ascending=False).style.map(highlight_long, subset=["Duration (min)"]).format({"Duration (min)": "{:.1f}"})
         except AttributeError:
@@ -111,8 +156,8 @@ with right:
         st.dataframe(styled, use_container_width=True, hide_index=True)
         st.download_button("⬇️ Download as CSV", logs.to_csv(index=False).encode(), f"break_log_{today_str()}.csv", "text/csv")
 
-    if not st.session_state.logs.empty:
-        today_logs = st.session_state.logs[st.session_state.logs["Date"] == today_str()]
+    if not logs_df.empty and "Date" in logs_df.columns:
+        today_logs = logs_df[logs_df["Date"] == today_str()]
         if not today_logs.empty:
             st.markdown("#### Today's Summary by Staff")
             summary = today_logs.groupby("Staff").agg(Breaks=("Duration (min)","count"), Total_Minutes=("Duration (min)","sum")).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
