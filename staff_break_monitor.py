@@ -152,6 +152,12 @@ tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
 ])
 
 def render_shift(shift_name):
+    col_refresh, _ = st.columns([1, 4])
+    if col_refresh.button(f"🔄 Refresh", key=f"refresh_{shift_name}"):
+        load_staff.clear()
+        load_logs.clear()
+        st.rerun()
+
     if staff_df.empty:
         st.info("No staff added yet. Go to **Manage Staff** tab to add staff members.")
         return
