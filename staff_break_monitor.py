@@ -30,18 +30,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
 SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
 POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew"]
 TOP_POSITIONS = ["Manager", "Supervisor"]
 
-# ── Google Sheets ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_spreadsheet():
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scopes)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID)
@@ -54,31 +49,23 @@ def get_sheet(name):
         sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
         return sheet
 
-# ── Load staff ────────────────────────────────────────────────────────────────
 def load_staff():
     try:
         sheet = get_sheet("Staff List")
         data  = sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            # Ensure required columns exist
-            if "Name" not in df.columns:
-                df["Name"] = ""
-            if "Position" not in df.columns:
-                df["Position"] = ""
-            if "Shift" not in df.columns:
-                df["Shift"] = "Morning"  # default if column missing
-            # Clean whitespace
+            if "Name" not in df.columns: df["Name"] = ""
+            if "Position" not in df.columns: df["Position"] = ""
+            if "Shift" not in df.columns: df["Shift"] = "Morning"
             for col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-            # Sort: Manager/Supervisor first
             def sort_key(p):
                 return (0, TOP_POSITIONS.index(p)) if p in TOP_POSITIONS else (1, 99)
             df["_sort"] = df["Position"].apply(sort_key)
             df = df.sort_values("_sort").drop(columns=["_sort"]).reset_index(drop=True)
             return df
         else:
-            # Set up headers
             sheet.clear()
             sheet.append_row(["Name","Position","Shift"])
             return pd.DataFrame(columns=["Name","Position","Shift"])
@@ -101,17 +88,15 @@ def load_logs():
         st.error(f"Error loading logs: {e}")
         return pd.DataFrame(columns=["Staff","Position","Shift","Date","Break In","Break Out","Duration (min)"])
 
-# ── Write functions ───────────────────────────────────────────────────────────
 def save_staff_member(name, position, shift):
     sheet = get_sheet("Staff List")
-    # Check if headers exist
     existing = sheet.get_all_values()
     if not existing:
         sheet.append_row(["Name","Position","Shift"])
     sheet.append_row([name, position, shift])
 
 def update_staff_row(name, new_position, new_shift):
-    sheet   = get_sheet("Staff List")
+    sheet = get_sheet("Staff List")
     records = sheet.get_all_records()
     for i, row in enumerate(records):
         if str(row.get("Name","")).strip() == name:
@@ -120,7 +105,7 @@ def update_staff_row(name, new_position, new_shift):
             break
 
 def delete_staff_member(name):
-    sheet   = get_sheet("Staff List")
+    sheet = get_sheet("Staff List")
     records = sheet.get_all_records()
     for i, row in enumerate(records):
         if str(row.get("Name","")).strip() == name:
@@ -132,7 +117,6 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
     sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
     load_logs.clear()
 
-# ── Session state ─────────────────────────────────────────────────────────────
 if "active_breaks" not in st.session_state:
     st.session_state.active_breaks = {}
 if "staff_df" not in st.session_state:
@@ -143,76 +127,69 @@ def today_str(): return date.today().strftime("%Y-%m-%d")
 staff_df = st.session_state.staff_df
 logs_df  = load_logs()
 
-# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-header"><h1>⏱️ Staff Break Monitor</h1><p>Track break-in and break-out times for your team in real time.</p></div>', unsafe_allow_html=True)
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
-total_staff   = len(staff_df)
-on_break      = len(st.session_state.active_breaks)
-working       = total_staff - on_break
-today_records = logs_df[logs_df["Date"] == today_str()] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
-avg_duration  = round(pd.to_numeric(today_records["Duration (min)"], errors="coerce").mean(), 1) if not today_records.empty else 0
+def get_shift_metrics(shift_name):
+    if staff_df.empty or "Shift" not in staff_df.columns:
+        return 0, 0, 0, 0
+    shift_staff = staff_df[staff_df["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()]
+    total  = len(shift_staff)
+    on_brk = sum(1 for k in st.session_state.active_breaks if k.startswith(f"{shift_name}_"))
+    working = total - on_brk
+    today_records = logs_df[(logs_df["Date"] == today_str()) & (logs_df["Shift"] == shift_name)] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
+    avg = round(pd.to_numeric(today_records["Duration (min)"], errors="coerce").mean(), 1) if not today_records.empty else 0
+    return total, working, on_brk, avg
 
-c1, c2, c3, c4 = st.columns(4)
-for col, num, label in [(c1, total_staff, "Total Staff"), (c2, working, "Currently Working"), (c3, on_break, "On Break"), (c4, f"{avg_duration}m", "Avg Break (today)")]:
+m_total, m_working, m_break, m_avg = get_shift_metrics("Morning")
+a_total, a_working, a_break, a_avg = get_shift_metrics("Afternoon")
+
+st.markdown("#### ☀️ Morning Shift")
+mc1, mc2, mc3, mc4 = st.columns(4)
+for col, num, label in [(mc1, m_total, "Total Staff"), (mc2, m_working, "Currently Working"), (mc3, m_break, "On Break"), (mc4, f"{m_avg}m", "Avg Break (today)")]:
     col.markdown(f'<div class="metric-card"><div class="metric-number">{num}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
-    "☀️ Morning Shift", "🌤️ Afternoon Shift", "📋 Break Log", "👥 Manage Staff"
-])
+st.markdown("#### 🌤️ Afternoon Shift")
+ac1, ac2, ac3, ac4 = st.columns(4)
+for col, num, label in [(ac1, a_total, "Total Staff"), (ac2, a_working, "Currently Working"), (ac3, a_break, "On Break"), (ac4, f"{a_avg}m", "Avg Break (today)")]:
+    col.markdown(f'<div class="metric-card"><div class="metric-number">{num}</div><div class="metric-label">{label}</div></div>', unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs(["☀️ Morning Shift", "🌤️ Afternoon Shift", "📋 Break Log", "👥 Manage Staff"])
 
 def render_shift(shift_name):
     if st.button(f"🔄 Refresh", key=f"refresh_{shift_name}"):
         st.session_state.staff_df = load_staff()
         st.rerun()
-
     current_staff = st.session_state.staff_df
-
     if current_staff.empty:
         st.info("No staff added yet. Go to **Manage Staff** tab to add staff members.")
         return
-
-    # Safe shift filtering
     if "Shift" not in current_staff.columns:
         st.warning("Shift column missing. Please go to **Manage Staff** and re-save each staff member.")
         return
-
-    shift_staff = current_staff[
-        current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()
-    ].copy()
-
+    shift_staff = current_staff[current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()].copy()
     if shift_staff.empty:
         st.info(f"No staff assigned to {shift_name} Shift. Go to **Manage Staff** to assign shifts.")
         return
-
     for _, row in shift_staff.iterrows():
         staff    = str(row.get("Name","")).strip()
         position = str(row.get("Position","")).strip()
         key_id   = f"{shift_name}_{staff}"
         on       = key_id in st.session_state.active_breaks
-
-        badge     = '<span class="badge-on-break">On Break</span>' if on else '<span class="badge-working">Working</span>'
+        badge    = '<span class="badge-on-break">On Break</span>' if on else '<span class="badge-working">Working</span>'
         pos_badge = f'<span class="position-badge">{position}</span>'
         start_time = f"started {st.session_state.active_breaks[key_id].strftime('%H:%M:%S')}" if on else ""
-
         col_info, col_btn = st.columns([3,1])
-        col_info.markdown(
-            f"**{staff}** {badge} {pos_badge}<br>"
-            f"<span style='font-size:0.78rem;color:#9CA3AF'>{start_time}</span>",
-            unsafe_allow_html=True
-        )
-
+        col_info.markdown(f"**{staff}** {badge} {pos_badge}<br><span style='font-size:0.78rem;color:#9CA3AF'>{start_time}</span>", unsafe_allow_html=True)
         if on:
             if col_btn.button("Break Out", key=f"out_{key_id}"):
                 break_in_dt  = st.session_state.active_breaks.pop(key_id)
                 break_out_dt = datetime.now()
                 duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
-                save_log(staff, position, shift_name, today_str(),
-                         break_in_dt.strftime("%H:%M:%S"),
-                         break_out_dt.strftime("%H:%M:%S"), duration)
+                save_log(staff, position, shift_name, today_str(), break_in_dt.strftime("%H:%M:%S"), break_out_dt.strftime("%H:%M:%S"), duration)
                 st.toast(f"✅ {staff} returned from break ({duration} min)")
                 st.rerun()
         else:
@@ -230,24 +207,20 @@ with tab_afternoon:
     st.subheader("🌤️ Afternoon Shift Staff")
     render_shift("Afternoon")
 
-# ── Break Log Tab ─────────────────────────────────────────────────────────────
 with tab_logs:
     st.subheader("📋 Break Log")
     if st.button("🔄 Refresh Logs"):
         load_logs.clear()
         st.rerun()
-
     f1, f2, f3 = st.columns(3)
     filter_staff = f1.selectbox("Filter by staff", ["All"] + (staff_df["Name"].tolist() if not staff_df.empty else []))
     filter_shift = f2.selectbox("Filter by shift", ["All","Morning","Afternoon"])
     filter_date  = f3.date_input("Filter by date", value=date.today())
-
     logs = logs_df.copy()
     if not logs.empty and "Date" in logs.columns:
         logs = logs[logs["Date"] == str(filter_date)]
         if filter_staff != "All": logs = logs[logs["Staff"] == filter_staff]
         if filter_shift != "All": logs = logs[logs["Shift"] == filter_shift]
-
     if logs.empty:
         st.info("No break records found for the selected filters.")
     else:
@@ -260,21 +233,15 @@ with tab_logs:
             styled = logs.sort_values("Break In", ascending=False).style.applymap(highlight_long, subset=["Duration (min)"]).format({"Duration (min)": "{:.1f}"})
         st.dataframe(styled, use_container_width=True, hide_index=True)
         st.download_button("⬇️ Download as CSV", logs.to_csv(index=False).encode(), f"break_log_{today_str()}.csv", "text/csv")
-
     if not logs_df.empty and "Date" in logs_df.columns:
         today_logs = logs_df[logs_df["Date"] == today_str()]
         if not today_logs.empty:
             st.markdown("#### Today's Summary by Staff")
-            summary = today_logs.groupby(["Staff","Position","Shift"]).agg(
-                Breaks=("Duration (min)","count"),
-                Total_Minutes=("Duration (min)","sum")
-            ).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
+            summary = today_logs.groupby(["Staff","Position","Shift"]).agg(Breaks=("Duration (min)","count"),Total_Minutes=("Duration (min)","sum")).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
             st.dataframe(summary, use_container_width=True, hide_index=True)
 
-# ── Manage Staff Tab ──────────────────────────────────────────────────────────
 with tab_manage:
     st.subheader("👥 Manage Staff")
-
     with st.expander("➕ Add New Staff Member", expanded=True):
         new_name     = st.text_input("Full Name", placeholder="e.g. John Smith")
         new_position = st.selectbox("Position", POSITIONS, key="new_position")
@@ -291,42 +258,33 @@ with tab_manage:
                     st.rerun()
             else:
                 st.warning("Please enter a name.")
-
     st.markdown("---")
     st.markdown("#### Current Staff Members")
     st.caption("⭐ Manager and Supervisor always appear at the top. Use 💾 to save changes, 🗑️ to remove.")
-
     if staff_df.empty:
         st.info("No staff members yet. Add one above!")
     else:
         h1, h2, h3, h4, h5 = st.columns([2,2,2,0.5,0.5])
         h1.markdown("**Name**"); h2.markdown("**Position**"); h3.markdown("**Shift**")
-
         for _, row in staff_df.iterrows():
             staff_name  = str(row.get("Name","")).strip()
             staff_pos   = str(row.get("Position", POSITIONS[0])).strip()
             staff_shift = str(row.get("Shift", "Morning")).strip()
-
             col_name, col_pos, col_shift, col_save, col_del = st.columns([2,2,2,0.5,0.5])
-
             is_top = staff_pos in TOP_POSITIONS
             col_name.markdown(f"{'⭐ ' if is_top else ''}**{staff_name}**")
-
             pos_index   = POSITIONS.index(staff_pos) if staff_pos in POSITIONS else 0
             new_pos     = col_pos.selectbox("", POSITIONS, index=pos_index, key=f"pos_{staff_name}", label_visibility="collapsed")
             shift_index = 0 if staff_shift.lower() == "morning" else 1
             new_shift   = col_shift.radio("", ["Morning","Afternoon"], index=shift_index, key=f"shift_{staff_name}", horizontal=True, label_visibility="collapsed")
-
             if col_save.button("💾", key=f"save_{staff_name}", help="Save changes"):
                 update_staff_row(staff_name, new_pos, new_shift)
                 st.session_state.staff_df = load_staff()
                 st.toast(f"✅ Updated {staff_name}")
                 st.rerun()
-
             if col_del.button("🗑️", key=f"del_{staff_name}", help="Remove staff"):
                 delete_staff_member(staff_name)
                 st.session_state.staff_df = load_staff()
                 st.toast(f"🗑️ Removed {staff_name}")
                 st.rerun()
-
             st.divider()
