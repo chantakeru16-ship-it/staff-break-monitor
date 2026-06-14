@@ -54,22 +54,32 @@ def get_sheet(name):
         sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
         return sheet
 
-# ── Load staff directly (no cache to always get fresh data) ──────────────────
+# ── Load staff ────────────────────────────────────────────────────────────────
 def load_staff():
     try:
         sheet = get_sheet("Staff List")
         data  = sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            # Clean up whitespace
+            # Ensure required columns exist
+            if "Name" not in df.columns:
+                df["Name"] = ""
+            if "Position" not in df.columns:
+                df["Position"] = ""
+            if "Shift" not in df.columns:
+                df["Shift"] = "Morning"  # default if column missing
+            # Clean whitespace
             for col in df.columns:
-                if df[col].dtype == object:
-                    df[col] = df[col].astype(str).str.strip()
+                df[col] = df[col].astype(str).str.strip()
             # Sort: Manager/Supervisor first
-            df["_p"] = df["Position"].apply(lambda p: (0, TOP_POSITIONS.index(p)) if p in TOP_POSITIONS else (1, 99))
-            df = df.sort_values("_p").drop(columns=["_p"]).reset_index(drop=True)
+            def sort_key(p):
+                return (0, TOP_POSITIONS.index(p)) if p in TOP_POSITIONS else (1, 99)
+            df["_sort"] = df["Position"].apply(sort_key)
+            df = df.sort_values("_sort").drop(columns=["_sort"]).reset_index(drop=True)
             return df
         else:
+            # Set up headers
+            sheet.clear()
             sheet.append_row(["Name","Position","Shift"])
             return pd.DataFrame(columns=["Name","Position","Shift"])
     except Exception as e:
@@ -84,6 +94,7 @@ def load_logs():
         if data:
             return pd.DataFrame(data)
         else:
+            sheet.clear()
             sheet.append_row(["Staff","Position","Shift","Date","Break In","Break Out","Duration (min)"])
             return pd.DataFrame(columns=["Staff","Position","Shift","Date","Break In","Break Out","Duration (min)"])
     except Exception as e:
@@ -93,8 +104,9 @@ def load_logs():
 # ── Write functions ───────────────────────────────────────────────────────────
 def save_staff_member(name, position, shift):
     sheet = get_sheet("Staff List")
-    records = sheet.get_all_records()
-    if not records:
+    # Check if headers exist
+    existing = sheet.get_all_values()
+    if not existing:
         sheet.append_row(["Name","Position","Shift"])
     sheet.append_row([name, position, shift])
 
@@ -102,7 +114,7 @@ def update_staff_row(name, new_position, new_shift):
     sheet   = get_sheet("Staff List")
     records = sheet.get_all_records()
     for i, row in enumerate(records):
-        if row["Name"] == name:
+        if str(row.get("Name","")).strip() == name:
             sheet.update_cell(i+2, 2, new_position)
             sheet.update_cell(i+2, 3, new_shift)
             break
@@ -111,7 +123,7 @@ def delete_staff_member(name):
     sheet   = get_sheet("Staff List")
     records = sheet.get_all_records()
     for i, row in enumerate(records):
-        if row["Name"] == name:
+        if str(row.get("Name","")).strip() == name:
             sheet.delete_rows(i+2)
             break
 
@@ -128,7 +140,6 @@ if "staff_df" not in st.session_state:
 
 def today_str(): return date.today().strftime("%Y-%m-%d")
 
-# ── Always use session state staff_df ────────────────────────────────────────
 staff_df = st.session_state.staff_df
 logs_df  = load_logs()
 
@@ -154,7 +165,7 @@ tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
 ])
 
 def render_shift(shift_name):
-    if st.button(f"🔄 Refresh {shift_name} Shift", key=f"refresh_{shift_name}"):
+    if st.button(f"🔄 Refresh", key=f"refresh_{shift_name}"):
         st.session_state.staff_df = load_staff()
         st.rerun()
 
@@ -164,17 +175,21 @@ def render_shift(shift_name):
         st.info("No staff added yet. Go to **Manage Staff** tab to add staff members.")
         return
 
-    # Filter by shift — case insensitive and stripped
+    # Safe shift filtering
+    if "Shift" not in current_staff.columns:
+        st.warning("Shift column missing. Please go to **Manage Staff** and re-save each staff member.")
+        return
+
     shift_staff = current_staff[
         current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()
-    ]
+    ].copy()
 
     if shift_staff.empty:
         st.info(f"No staff assigned to {shift_name} Shift. Go to **Manage Staff** to assign shifts.")
         return
 
     for _, row in shift_staff.iterrows():
-        staff    = str(row["Name"]).strip()
+        staff    = str(row.get("Name","")).strip()
         position = str(row.get("Position","")).strip()
         key_id   = f"{shift_name}_{staff}"
         on       = key_id in st.session_state.active_breaks
@@ -288,9 +303,9 @@ with tab_manage:
         h1.markdown("**Name**"); h2.markdown("**Position**"); h3.markdown("**Shift**")
 
         for _, row in staff_df.iterrows():
-            staff_name  = row["Name"]
-            staff_pos   = row.get("Position", POSITIONS[0])
-            staff_shift = row.get("Shift", "Morning")
+            staff_name  = str(row.get("Name","")).strip()
+            staff_pos   = str(row.get("Position", POSITIONS[0])).strip()
+            staff_shift = str(row.get("Shift", "Morning")).strip()
 
             col_name, col_pos, col_shift, col_save, col_del = st.columns([2,2,2,0.5,0.5])
 
@@ -299,7 +314,7 @@ with tab_manage:
 
             pos_index   = POSITIONS.index(staff_pos) if staff_pos in POSITIONS else 0
             new_pos     = col_pos.selectbox("", POSITIONS, index=pos_index, key=f"pos_{staff_name}", label_visibility="collapsed")
-            shift_index = 0 if str(staff_shift).strip().lower() == "morning" else 1
+            shift_index = 0 if staff_shift.lower() == "morning" else 1
             new_shift   = col_shift.radio("", ["Morning","Afternoon"], index=shift_index, key=f"shift_{staff_name}", horizontal=True, label_visibility="collapsed")
 
             if col_save.button("💾", key=f"save_{staff_name}", help="Save changes"):
