@@ -36,6 +36,10 @@ st.markdown("""
     .badge-on-break  { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
     .badge-working   { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
     .badge-off-shift { background: #F3F4F6; color: #9CA3AF; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+    .break-timer-green { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+    .break-timer-orange { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+    .break-timer-red { background: #FEE2E2; color: #991B1B; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; animation: pulse 1s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     .position-badge  { background: #EFF6FF; color: #1D4ED8; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 500; }
     .stButton > button { border-radius: 8px !important; font-weight: 600 !important; font-size: 0.85rem !important; padding: 0.45rem 1rem !important; width: 100% !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
@@ -271,6 +275,7 @@ def get_shift_metrics(shift_name):
 
 m_total, m_working, m_break, m_avg = get_shift_metrics("Morning")
 a_total, a_working, a_break, a_avg = get_shift_metrics("Afternoon")
+e_total, e_working, e_break, e_avg = get_shift_metrics("Evening")
 
 st.markdown('<div class="shift-header">☀️ Morning Shift</div>', unsafe_allow_html=True)
 mc1, mc2, mc3, mc4 = st.columns(4)
@@ -290,9 +295,18 @@ ac4.markdown(f'<div class="metric-card"><div class="metric-number">{a_avg}m</div
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+st.markdown('<div class="shift-header">🌙 Evening Shift</div>', unsafe_allow_html=True)
+ec1, ec2, ec3, ec4 = st.columns(4)
+ec1.markdown(f'<div class="metric-card"><div class="metric-number">{e_total}</div><div class="metric-label">On Shift Today</div></div>', unsafe_allow_html=True)
+ec2.markdown(f'<div class="metric-card"><div class="metric-number">{e_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
+ec3.markdown(f'<div class="metric-card"><div class="metric-number">{e_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
+ec4.markdown(f'<div class="metric-card"><div class="metric-number">{e_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_morning, tab_afternoon, tab_logs, tab_manage = st.tabs([
-    "☀️ Morning Shift", "🌤️ Afternoon Shift", "📋 Break Log", "👥 Manage Staff"
+tab_morning, tab_afternoon, tab_evening, tab_logs, tab_manage = st.tabs([
+    "☀️ Morning Shift", "🌤️ Afternoon Shift", "🌙 Evening Shift", "📋 Break Log", "👥 Manage Staff"
 ])
 
 def render_shift(shift_name):
@@ -349,11 +363,25 @@ def render_shift(shift_name):
             badge = '<span class="badge-working">Working</span>'
 
         pos_badge  = f'<span class="position-badge">{position}</span>'
-        start_time = f"since {st.session_state.active_breaks[key_id].strftime('%H:%M')}" if on_break else ""
+
+        # Break duration color indicator
+        break_timer_html = ""
+        if on_break and key_id in st.session_state.active_breaks:
+            elapsed_mins = (now_local() - st.session_state.active_breaks[key_id]).total_seconds() / 60
+            elapsed_str  = f"{int(elapsed_mins)}m {int((elapsed_mins % 1) * 60)}s"
+            if elapsed_mins < 10:
+                timer_class = "break-timer-green"
+                timer_icon  = "🟢"
+            elif elapsed_mins < 15:
+                timer_class = "break-timer-orange"
+                timer_icon  = "🟡"
+            else:
+                timer_class = "break-timer-red"
+                timer_icon  = "🔴"
+            break_timer_html = f'<span class="{timer_class}">{timer_icon} {elapsed_str} on break</span>'
 
         col_info.markdown(
-            f"**{staff}**<br>{badge} {pos_badge}<br>"
-            f"<span style='font-size:0.75rem;color:#9CA3AF'>{start_time}</span>",
+            f"**{staff}**<br>{badge} {pos_badge} {break_timer_html}",
             unsafe_allow_html=True
         )
 
@@ -412,6 +440,10 @@ with tab_afternoon:
     st.subheader("🌤️ Afternoon Shift")
     render_shift("Afternoon")
 
+with tab_evening:
+    st.subheader("🌙 Evening Shift")
+    render_shift("Evening")
+
 with tab_logs:
     st.subheader("📋 Break Log")
     if st.button("🔄 Refresh Logs"):
@@ -451,7 +483,7 @@ with tab_manage:
     with st.expander("➕ Add New Staff Member", expanded=True):
         new_name     = st.text_input("Full Name", placeholder="e.g. John Smith")
         new_position = st.selectbox("Position", POSITIONS, key="new_position")
-        new_shift    = st.radio("Shift", ["Morning","Afternoon"], horizontal=True, key="new_shift")
+        new_shift    = st.radio("Shift", ["Morning","Afternoon","Evening"], horizontal=True, key="new_shift")
         if st.button("➕ Add Staff Member"):
             if new_name.strip():
                 existing = staff_df["Name"].tolist() if not staff_df.empty else []
@@ -479,8 +511,8 @@ with tab_manage:
                 st.markdown(f"{'⭐ ' if is_top else ''}**{staff_name}**")
                 pos_index   = POSITIONS.index(staff_pos) if staff_pos in POSITIONS else 0
                 new_pos     = st.selectbox("Position", POSITIONS, index=pos_index, key=f"pos_{staff_name}")
-                shift_index = 0 if staff_shift.lower() == "morning" else 1
-                new_shift   = st.radio("Shift", ["Morning","Afternoon"], index=shift_index, key=f"shift_{staff_name}", horizontal=True)
+                shift_index = 0 if staff_shift.lower() == "morning" else (1 if staff_shift.lower() == "afternoon" else 2)
+                new_shift   = st.radio("Shift", ["Morning","Afternoon","Evening"], index=shift_index, key=f"shift_{staff_name}", horizontal=True)
                 col_save, col_del = st.columns(2)
                 if col_save.button("💾 Save", key=f"save_{staff_name}"):
                     update_staff_row(staff_name, new_pos, new_shift)
