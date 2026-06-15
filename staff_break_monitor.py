@@ -60,7 +60,7 @@ st.markdown("""
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
-POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew"]
+POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew","Prep"]
 TOP_POSITIONS = ["Manager", "Supervisor"]
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
@@ -453,7 +453,7 @@ with tab_logs:
     if st.button("🔄 Refresh Logs"):
         st.rerun()
     filter_staff = st.selectbox("Filter by staff", ["All"] + (staff_df["Name"].tolist() if not staff_df.empty else []))
-    filter_shift = st.selectbox("Filter by shift", ["All","Morning","Afternoon"])
+    filter_shift = st.selectbox("Filter by shift", ["All","Morning","Afternoon","Evening"])
     filter_date  = st.date_input("Filter by date", value=date.today())
     logs = logs_df.copy()
     if not logs.empty and "Date" in logs.columns:
