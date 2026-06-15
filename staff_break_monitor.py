@@ -316,7 +316,23 @@ def render_shift(shift_name):
         st.info(f"No staff assigned to {shift_name} Shift.")
         return
 
+    # Sort: On Shift first, Off Shift at bottom
+    if not isinstance(st.session_state.off_shift, set):
+        st.session_state.off_shift = set(st.session_state.off_shift)
+    shift_staff["_off"] = shift_staff["Name"].apply(lambda n: 1 if n in st.session_state.off_shift else 0)
+    shift_staff = shift_staff.sort_values("_off").drop(columns=["_off"]).reset_index(drop=True)
+
+    on_shift_count  = sum(1 for n in shift_staff["Name"] if n not in st.session_state.off_shift)
+    off_shift_count = len(shift_staff) - on_shift_count
+    shown_divider   = False
+    current_index   = 0
+
     for _, row in shift_staff.iterrows():
+        current_index += 1
+        if not shown_divider and current_index > on_shift_count and off_shift_count > 0:
+            st.markdown("---")
+            st.markdown("<span style=\'color:#9CA3AF;font-size:0.8rem;font-weight:600\'>⬇️ NOT WORKING TODAY</span>", unsafe_allow_html=True)
+            shown_divider = True
         staff     = str(row.get("Name","")).strip()
         position  = str(row.get("Position","")).strip()
         key_id    = f"{shift_name}_{staff}"
