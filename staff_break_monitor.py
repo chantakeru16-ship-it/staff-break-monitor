@@ -42,6 +42,10 @@ st.markdown("""
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     .position-badge  { background: #EFF6FF; color: #1D4ED8; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 500; }
     .stButton > button { border-radius: 8px !important; font-weight: 600 !important; font-size: 0.85rem !important; padding: 0.45rem 1rem !important; width: 100% !important; }
+    .btn-break-in  > button { background-color: #ffffff !important; color: #374151 !important; border: 1.5px solid #D1D5DB !important; }
+    .btn-break-in  > button:hover { background-color: #F3F4F6 !important; }
+    .btn-break-out > button { background-color: #16A34A !important; color: white !important; border: none !important; box-shadow: 0 0 0 3px rgba(22,163,74,0.3) !important; }
+    .btn-break-out > button:hover { background-color: #15803D !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { white-space: nowrap; font-weight: 600 !important; }
     @media (max-width: 768px) {
@@ -414,7 +418,8 @@ def render_shift(shift_name):
 
         if not is_off:
             if on_break:
-                if col_btn.button("Break Out", key=f"out_{key_id}"):
+                col_btn.markdown('<div class="btn-break-out">', unsafe_allow_html=True)
+                if col_btn.button("✅ Break Out", key=f"out_{key_id}"):
                     break_in_dt  = st.session_state.active_breaks.pop(key_id)
                     break_out_dt = now_local()
                     duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
@@ -424,13 +429,16 @@ def render_shift(shift_name):
                     clear_break_in(staff)
                     st.toast(f"✅ {staff} back ({duration} min)")
                     st.rerun()
+                col_btn.markdown('</div>', unsafe_allow_html=True)
             else:
-                if col_btn.button("Break In", key=f"in_{key_id}"):
+                col_btn.markdown('<div class="btn-break-in">', unsafe_allow_html=True)
+                if col_btn.button("☕ Break In", key=f"in_{key_id}"):
                     break_time = now_local()
                     st.session_state.active_breaks[key_id] = break_time
                     save_break_in(staff, key_id, break_time)
                     st.toast(f"☕ {staff} on break")
                     st.rerun()
+                col_btn.markdown('</div>', unsafe_allow_html=True)
         else:
             col_btn.markdown("")
 
