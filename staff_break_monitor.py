@@ -330,11 +330,13 @@ def render_shift(shift_name):
         st.info(f"No staff assigned to {shift_name} Shift.")
         return
 
-    # Sort: On Shift first, Off Shift at bottom
+    # Sort: On Shift first (Manager/Supervisor at very top), Off Shift at bottom
     if not isinstance(st.session_state.off_shift, set):
         st.session_state.off_shift = set(st.session_state.off_shift)
-    shift_staff["_off"] = shift_staff["Name"].apply(lambda n: 1 if n in st.session_state.off_shift else 0)
-    shift_staff = shift_staff.sort_values("_off").drop(columns=["_off"]).reset_index(drop=True)
+    TOP_POS = ["Manager", "Supervisor"]
+    shift_staff["_off"]      = shift_staff["Name"].apply(lambda n: 1 if n in st.session_state.off_shift else 0)
+    shift_staff["_priority"] = shift_staff["Position"].apply(lambda p: 0 if p in TOP_POS else 1)
+    shift_staff = shift_staff.sort_values(["_off","_priority","Name"]).drop(columns=["_off","_priority"]).reset_index(drop=True)
 
     on_shift_count  = sum(1 for n in shift_staff["Name"] if n not in st.session_state.off_shift)
     off_shift_count = len(shift_staff) - on_shift_count
@@ -380,8 +382,10 @@ def render_shift(shift_name):
                 timer_icon  = "🔴"
             break_timer_html = f'<span class="{timer_class}">{timer_icon} {elapsed_str} on break</span>'
 
+        is_top    = position in ["Manager", "Supervisor"]
+        star      = "⭐ " if is_top else ""
         col_info.markdown(
-            f"**{staff}**<br>{badge} {pos_badge} {break_timer_html}",
+            f"**{star}{staff}**<br>{badge} {pos_badge} {break_timer_html}",
             unsafe_allow_html=True
         )
 
