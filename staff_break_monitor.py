@@ -542,7 +542,20 @@ with tab_tasks:
             "Cleaning",
             "Lot Pick-up",
         ]
-        task_desc = st.selectbox("Select Task", TASK_LIST, key="task_desc_select")
+        # Filter out tasks already assigned today for this shift
+        existing_tasks_df = load_tasks()
+        if not existing_tasks_df.empty and "Shift" in existing_tasks_df.columns:
+            already_assigned = existing_tasks_df[
+                existing_tasks_df["Shift"] == task_shift
+            ]["Task"].tolist()
+        else:
+            already_assigned = []
+        available_tasks = [t for t in TASK_LIST if t not in already_assigned]
+        if not available_tasks:
+            st.info("✅ All tasks have been assigned for this shift today!")
+            task_desc = None
+        else:
+            task_desc = st.selectbox("Select Task", available_tasks, key="task_desc_select")
         # Only show staff on shift today and not marked off
         if not staff_df.empty and "Shift" in staff_df.columns:
             if not isinstance(st.session_state.off_shift, set):
@@ -556,7 +569,7 @@ with tab_tasks:
         task_assign = st.selectbox("Assign To", ["Anyone"] + on_shift_staff, key="task_assign")
         task_priority = st.radio("Priority", ["Normal","High","Urgent"], horizontal=True, key="task_priority")
         if st.button("➕ Add Task"):
-            if task_desc:
+            if task_desc is not None:
                 add_task(task_shift, task_desc.strip(), task_assign, task_priority)
                 st.success(f"✅ Task added for {task_shift} Shift!")
                 st.rerun()
