@@ -600,6 +600,38 @@ with tab_tasks:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # ── Staff task summary ────────────────────────────────────────────────
+        st.markdown("#### 👤 Staff Task Summary")
+        assigned_staff = shift_tasks[shift_tasks["Assigned To"] != "Anyone"]
+        if not assigned_staff.empty:
+            staff_task_counts = assigned_staff.groupby("Assigned To").agg(
+                Total=("Task","count"),
+                Done=("Status", lambda x: (x == "Done").sum()),
+                Pending=("Status", lambda x: (x == "Pending").sum())
+            ).reset_index().sort_values("Total", ascending=False)
+
+            for _, srow in staff_task_counts.iterrows():
+                sname   = srow["Assigned To"]
+                total   = srow["Total"]
+                done    = srow["Done"]
+                pending = srow["Pending"]
+                task_word = "task" if total == 1 else "tasks"
+
+                scol1, scol2 = st.columns([3, 2])
+                scol1.markdown(
+                    f"**{sname}** — {total} {task_word} assigned",
+                    unsafe_allow_html=True
+                )
+                scol2.markdown(
+                    f'<span style="background:#EAF3DE;color:#3B6D11;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600">✅ {done} done</span> '
+                    f'<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600">⏳ {pending} pending</span>',
+                    unsafe_allow_html=True
+                )
+        else:
+            st.caption("No tasks assigned to specific staff yet.")
+
+        st.markdown("---")
+
         # Pending tasks first, Done at bottom
         pending_tasks = shift_tasks[shift_tasks["Status"] == "Pending"]
         done_tasks    = shift_tasks[shift_tasks["Status"] == "Done"]
