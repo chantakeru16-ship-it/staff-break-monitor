@@ -350,6 +350,8 @@ def render_shift(shift_name):
             label_visibility="collapsed"
         )
 
+        if not isinstance(st.session_state.off_shift, set):
+            st.session_state.off_shift = set(st.session_state.off_shift)
         if shift_status == "Off Shift" and staff not in st.session_state.off_shift:
             st.session_state.off_shift.add(staff)
             save_shift_status(staff, key_id, "Off Shift")
