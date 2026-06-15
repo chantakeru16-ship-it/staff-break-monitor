@@ -543,7 +543,17 @@ with tab_tasks:
             "Lot Pick-up",
         ]
         task_desc = st.selectbox("Select Task", TASK_LIST, key="task_desc_select")
-        task_assign  = st.selectbox("Assign To", ["Anyone"] + (staff_df["Name"].tolist() if not staff_df.empty else []), key="task_assign")
+        # Only show staff on shift today and not marked off
+        if not staff_df.empty and "Shift" in staff_df.columns:
+            if not isinstance(st.session_state.off_shift, set):
+                st.session_state.off_shift = set(st.session_state.off_shift)
+            on_shift_staff = staff_df[
+                (staff_df["Shift"].astype(str).str.strip().str.lower() == task_shift.lower()) &
+                (~staff_df["Name"].isin(st.session_state.off_shift))
+            ]["Name"].tolist()
+        else:
+            on_shift_staff = []
+        task_assign = st.selectbox("Assign To", ["Anyone"] + on_shift_staff, key="task_assign")
         task_priority = st.radio("Priority", ["Normal","High","Urgent"], horizontal=True, key="task_priority")
         if st.button("➕ Add Task"):
             if task_desc:
