@@ -525,11 +525,28 @@ with tab_tasks:
 
     # Add new task
     with st.expander("➕ Add New Task", expanded=True):
-        task_desc    = st.text_input("Task Description", placeholder="e.g. Clean and organize front counter")
+        TASK_LIST = [
+            "Back of the House",
+            "Front - Restock Supplies",
+            "Drive Thru - Restock Supplies",
+            "Clean - Merry Chef",
+            "Clean - Machine",
+            "Clean - Showcase",
+            "Washroom",
+            "Garbage",
+            "Sweeping - Front",
+            "Sweeping - Lobby",
+            "Mopping - Lobby",
+            "Mopping - Front",
+            "Lobby Checking",
+            "Cleaning",
+            "Lot Pick-up",
+        ]
+        task_desc = st.selectbox("Select Task", TASK_LIST, key="task_desc_select")
         task_assign  = st.selectbox("Assign To", ["Anyone"] + (staff_df["Name"].tolist() if not staff_df.empty else []), key="task_assign")
         task_priority = st.radio("Priority", ["Normal","High","Urgent"], horizontal=True, key="task_priority")
         if st.button("➕ Add Task"):
-            if task_desc.strip():
+            if task_desc:
                 add_task(task_shift, task_desc.strip(), task_assign, task_priority)
                 st.success(f"✅ Task added for {task_shift} Shift!")
                 st.rerun()
