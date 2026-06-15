@@ -236,6 +236,64 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
     sheet = get_sheet("Break Logs")
     sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
 
+
+# ── Task functions ────────────────────────────────────────────────────────────
+def load_tasks():
+    try:
+        sheet   = get_sheet("Tasks")
+        records = sheet.get_all_records()
+        if not records:
+            sheet.clear()
+            sheet.append_row(["Date","Shift","Task","Assigned To","Priority","Status"])
+            return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
+        df = pd.DataFrame(records)
+        # Only return today's tasks
+        return df[df["Date"].astype(str).str.strip() == today_local()].reset_index(drop=True)
+    except Exception as e:
+        st.error(f"Error loading tasks: {e}")
+        return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
+
+def add_task(shift, task, assigned_to, priority):
+    try:
+        sheet = get_sheet("Tasks")
+        records = sheet.get_all_values()
+        if not records:
+            sheet.append_row(["Date","Shift","Task","Assigned To","Priority","Status"])
+        sheet.append_row([today_local(), shift, task, assigned_to, priority, "Pending"])
+    except Exception as e:
+        st.error(f"Error adding task: {e}")
+
+def toggle_task_status(task_row_index, current_status):
+    try:
+        sheet   = get_sheet("Tasks")
+        records = sheet.get_all_records()
+        today   = today_local()
+        count   = 0
+        for i, row in enumerate(records):
+            if str(row.get("Date","")).strip() == today:
+                if count == task_row_index:
+                    new_status = "Done" if current_status == "Pending" else "Pending"
+                    sheet.update_cell(i+2, 6, new_status)
+                    return
+                count += 1
+    except Exception as e:
+        st.error(f"Error updating task: {e}")
+
+def delete_task(task_row_index):
+    try:
+        sheet   = get_sheet("Tasks")
+        records = sheet.get_all_records()
+        today   = today_local()
+        count   = 0
+        for i, row in enumerate(records):
+            if str(row.get("Date","")).strip() == today:
+                if count == task_row_index:
+                    sheet.delete_rows(i+2)
+                    return
+                count += 1
+    except Exception as e:
+        st.error(f"Error deleting task: {e}")
+
 # ── Session state — load from Google Sheets on first load ─────────────────────
 if "initialized" not in st.session_state:
     st.session_state.staff_df      = load_staff()
@@ -309,8 +367,8 @@ ec4.markdown(f'<div class="metric-card"><div class="metric-number">{e_avg}m</div
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_morning, tab_afternoon, tab_evening, tab_logs, tab_manage = st.tabs([
-    "☀️ Morning Shift", "🌤️ Afternoon Shift", "🌙 Evening Shift", "📋 Break Log", "👥 Manage Staff"
+tab_morning, tab_afternoon, tab_evening, tab_tasks, tab_logs, tab_manage = st.tabs([
+    "☀️ Morning Shift", "🌤️ Afternoon Shift", "🌙 Evening Shift", "📌 Tasks", "📋 Break Log", "👥 Manage Staff"
 ])
 
 def render_shift(shift_name):
@@ -455,6 +513,106 @@ with tab_afternoon:
 with tab_evening:
     st.subheader("🌙 Evening Shift")
     render_shift("Evening")
+
+
+with tab_tasks:
+    st.subheader("📌 Tasks")
+
+    # Shift selector
+    task_shift = st.radio("Select Shift", ["Morning","Afternoon","Evening"], horizontal=True, key="task_shift_select")
+
+    st.markdown("---")
+
+    # Add new task
+    with st.expander("➕ Add New Task", expanded=True):
+        task_desc    = st.text_input("Task Description", placeholder="e.g. Clean and organize front counter")
+        task_assign  = st.selectbox("Assign To", ["Anyone"] + (staff_df["Name"].tolist() if not staff_df.empty else []), key="task_assign")
+        task_priority = st.radio("Priority", ["Normal","High","Urgent"], horizontal=True, key="task_priority")
+        if st.button("➕ Add Task"):
+            if task_desc.strip():
+                add_task(task_shift, task_desc.strip(), task_assign, task_priority)
+                st.success(f"✅ Task added for {task_shift} Shift!")
+                st.rerun()
+            else:
+                st.warning("Please enter a task description.")
+
+    st.markdown("---")
+
+    # Load and display tasks
+    if st.button("🔄 Refresh Tasks"):
+        st.rerun()
+
+    tasks_df = load_tasks()
+    shift_tasks = tasks_df[tasks_df["Shift"] == task_shift].reset_index(drop=True) if not tasks_df.empty and "Shift" in tasks_df.columns else pd.DataFrame()
+
+    if shift_tasks.empty:
+        st.info(f"No tasks for {task_shift} Shift today. Add one above!")
+    else:
+        # Summary counts
+        total_tasks   = len(shift_tasks)
+        pending_count = len(shift_tasks[shift_tasks["Status"] == "Pending"])
+        done_count    = len(shift_tasks[shift_tasks["Status"] == "Done"])
+
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.markdown(f'<div class="metric-card"><div class="metric-number">{total_tasks}</div><div class="metric-label">Total Tasks</div></div>', unsafe_allow_html=True)
+        sc2.markdown(f'<div class="metric-card"><div class="metric-number" style="color:#E24B4A">{pending_count}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
+        sc3.markdown(f'<div class="metric-card"><div class="metric-number" style="color:#16A34A">{done_count}</div><div class="metric-label">Done</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Pending tasks first, Done at bottom
+        pending_tasks = shift_tasks[shift_tasks["Status"] == "Pending"]
+        done_tasks    = shift_tasks[shift_tasks["Status"] == "Done"]
+
+        def render_task(row, original_index):
+            is_done    = row["Status"] == "Done"
+            priority   = str(row.get("Priority","Normal"))
+            assigned   = str(row.get("Assigned To","Anyone"))
+            task_text  = str(row.get("Task",""))
+
+            # Priority color
+            if priority == "Urgent":
+                p_color = "#991B1B"
+                p_bg    = "#FEE2E2"
+            elif priority == "High":
+                p_color = "#92400E"
+                p_bg    = "#FEF3C7"
+            else:
+                p_color = "#1D4ED8"
+                p_bg    = "#EFF6FF"
+
+            col_check, col_info, col_del = st.columns([0.5, 4, 0.5])
+
+            # Toggle button styled as checkbox
+            btn_label = "✅" if is_done else "⬜"
+            if col_check.button(btn_label, key=f"toggle_{task_shift}_{original_index}"):
+                toggle_task_status(original_index, row["Status"])
+                st.rerun()
+
+            # Task info
+            task_style = "text-decoration: line-through; color: var(--color-text-secondary);" if is_done else ""
+            col_info.markdown(
+                f'<p style="{task_style} margin:0; font-size:0.9rem; font-weight:500">{task_text}</p>'
+                f'<span style="font-size:0.75rem;color:#6B7280">👤 {assigned} &nbsp;'
+                f'<span style="background:{p_bg};color:{p_color};padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:600">{priority}</span></span>',
+                unsafe_allow_html=True
+            )
+
+            if col_del.button("🗑️", key=f"del_task_{task_shift}_{original_index}"):
+                delete_task(original_index)
+                st.rerun()
+
+            st.divider()
+
+        # Show pending first
+        for idx, row in pending_tasks.iterrows():
+            render_task(row, idx)
+
+        # Show done section
+        if not done_tasks.empty:
+            st.markdown("<span style='color:#9CA3AF;font-size:0.8rem;font-weight:600'>✅ COMPLETED</span>", unsafe_allow_html=True)
+            for idx, row in done_tasks.iterrows():
+                render_task(row, idx)
 
 with tab_logs:
     st.subheader("📋 Break Log")
