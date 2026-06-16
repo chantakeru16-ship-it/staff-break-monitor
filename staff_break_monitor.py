@@ -37,16 +37,16 @@ st.markdown("""
     .badge-on-break  { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
     .badge-working   { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
     .badge-off-shift { background: #F3F4F6; color: #9CA3AF; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
-    .break-timer-green { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
-    .break-timer-orange { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
-    .break-timer-red { background: #FEE2E2; color: #991B1B; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; animation: pulse 1s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     .position-badge  { background: #EFF6FF; color: #1D4ED8; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 500; }
-    .stButton > button { border-radius: 8px !important; font-weight: 600 !important; font-size: 0.85rem !important; padding: 0.45rem 1rem !important; width: 100% !important; }
+    .break-timer-green  { background: #D1FAE5; color: #065F46; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+    .break-timer-orange { background: #FEF3C7; color: #92400E; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+    .break-timer-red    { background: #FEE2E2; color: #991B1B; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; animation: pulse 1s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
     .btn-break-in  > button { background-color: #ffffff !important; color: #374151 !important; border: 1.5px solid #D1D5DB !important; }
     .btn-break-in  > button:hover { background-color: #F3F4F6 !important; }
     .btn-break-out > button { background-color: #16A34A !important; color: white !important; border: none !important; box-shadow: 0 0 0 3px rgba(22,163,74,0.3) !important; }
     .btn-break-out > button:hover { background-color: #15803D !important; }
+    .stButton > button { border-radius: 8px !important; font-weight: 600 !important; font-size: 0.85rem !important; padding: 0.45rem 1rem !important; width: 100% !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { white-space: nowrap; font-weight: 600 !important; }
     @media (max-width: 768px) {
@@ -67,19 +67,25 @@ st.markdown("""
 SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
 POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew","Prep"]
 TOP_POSITIONS = ["Manager", "Supervisor"]
+TASK_LIST = [
+    "Back of the House",
+    "Front - Restock Supplies",
+    "Drive Thru - Restock Supplies",
+    "Clean - Merry Chef",
+    "Clean - Machine",
+    "Clean - Showcase",
+    "Washroom",
+    "Garbage",
+    "Sweeping - Front",
+    "Sweeping - Lobby",
+    "Mopping - Lobby",
+    "Mopping - Front",
+    "Lobby Checking",
+    "Cleaning",
+    "Lot Pick-up",
+]
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
-def retry_api(func, retries=3, delay=2):
-    """Retry a Google Sheets API call on failure."""
-    for attempt in range(retries):
-        try:
-            return func()
-        except Exception as e:
-            if attempt < retries - 1:
-                time.sleep(delay)
-            else:
-                raise e
-
 @st.cache_resource
 def get_spreadsheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
@@ -92,14 +98,18 @@ def get_sheet(name):
     try:
         return spreadsheet.worksheet(name)
     except gspread.exceptions.WorksheetNotFound:
+        sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
+        return sheet
+
+def retry_api(func, retries=3, delay=2):
+    for attempt in range(retries):
         try:
-            sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
-            return sheet
-        except Exception:
-            # Sheet already exists, just return it
-            return spreadsheet.worksheet(name)
-    except Exception as e:
-        raise e
+            return func()
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise e
 
 # ── Staff ─────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
@@ -154,65 +164,54 @@ def delete_staff_member(name):
             break
     load_staff.clear()
 
-# ── Daily Status (On/Off Shift + Active Breaks) — saved to Google Sheets ──────
+# ── Daily Status ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def load_daily_status():
-    """Load today's On/Off Shift status and active breaks from Google Sheets."""
     try:
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
         if not records:
             sheet.clear()
             sheet.append_row(["Date","Staff","Shift_Status","Break_In_Time"])
-            return {}, {}
-
-        today    = today_local()
-        off_shift      = set()
-        active_breaks  = {}
-
+            return set(), {}
+        today       = today_local()
+        off_shift   = set()
+        active_breaks = {}
         for row in records:
             if str(row.get("Date","")).strip() == today:
                 name   = str(row.get("Staff","")).strip()
                 status = str(row.get("Shift_Status","")).strip()
                 brk_in = str(row.get("Break_In_Time","")).strip()
-
                 if status == "Off Shift":
                     off_shift.add(name)
                 if brk_in and brk_in != "":
                     try:
-                        # Parse the saved break-in time
                         naive_dt = datetime.strptime(f"{today} {brk_in}", "%Y-%m-%d %H:%M:%S")
                         aware_dt = TIMEZONE.localize(naive_dt)
                         active_breaks[name] = aware_dt
                     except:
                         pass
-
         return off_shift, active_breaks
     except Exception as e:
         st.error(f"Error loading daily status: {e}")
         return set(), {}
 
-def save_shift_status(staff, shift_key, status):
-    """Save On/Off Shift status for a staff member today."""
+def save_shift_status(staff, status):
     try:
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
         today   = today_local()
-
-        # Find existing row for today + staff
         for i, row in enumerate(records):
             if str(row.get("Date","")).strip() == today and str(row.get("Staff","")).strip() == staff:
                 sheet.update_cell(i+2, 3, status)
+                load_daily_status.clear()
                 return
-
-        # No existing row — create new one
         sheet.append_row([today, staff, status, ""])
         load_daily_status.clear()
     except Exception as e:
         st.error(f"Error saving shift status: {e}")
 
-def save_break_in(staff, shift_key, break_in_time):
-    """Save break-in time for a staff member today."""
+def save_break_in(staff, break_in_time):
     def _save():
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
@@ -228,7 +227,6 @@ def save_break_in(staff, shift_key, break_in_time):
         st.error(f"Error saving break in — please try again: {e}")
 
 def clear_break_in(staff):
-    """Clear break-in time after break out."""
     def _clear():
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
@@ -240,7 +238,7 @@ def clear_break_in(staff):
     try:
         retry_api(_clear)
     except Exception as e:
-        st.error(f"Error clearing break in: {e}")
+        st.error(f"Error clearing break: {e}")
 
 # ── Break Logs ────────────────────────────────────────────────────────────────
 def load_logs():
@@ -266,8 +264,7 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
     except Exception as e:
         st.error(f"Error saving break log — please tap Break Out again: {e}")
 
-
-# ── Task functions ────────────────────────────────────────────────────────────
+# ── Tasks ─────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def load_tasks():
     try:
@@ -278,7 +275,6 @@ def load_tasks():
             sheet.append_row(["Date","Shift","Task","Assigned To","Priority","Status"])
             return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
         df = pd.DataFrame(records)
-        # Only return today's tasks
         return df[df["Date"].astype(str).str.strip() == today_local()].reset_index(drop=True)
     except Exception as e:
         st.error(f"Error loading tasks: {e}")
@@ -287,10 +283,8 @@ def load_tasks():
 def add_task(shift, task, assigned_to, priority):
     try:
         sheet = get_sheet("Tasks")
-        records = sheet.get_all_values()
-        if not records:
-            sheet.append_row(["Date","Shift","Task","Assigned To","Priority","Status"])
         sheet.append_row([today_local(), shift, task, assigned_to, priority, "Pending"])
+        load_tasks.clear()
     except Exception as e:
         st.error(f"Error adding task: {e}")
 
@@ -305,6 +299,7 @@ def toggle_task_status(task_row_index, current_status):
                 if count == task_row_index:
                     new_status = "Done" if current_status == "Pending" else "Pending"
                     sheet.update_cell(i+2, 6, new_status)
+                    load_tasks.clear()
                     return
                 count += 1
     except Exception as e:
@@ -320,21 +315,20 @@ def delete_task(task_row_index):
             if str(row.get("Date","")).strip() == today:
                 if count == task_row_index:
                     sheet.delete_rows(i+2)
+                    load_tasks.clear()
                     return
                 count += 1
     except Exception as e:
         st.error(f"Error deleting task: {e}")
 
-# ── Session state — load from Google Sheets on first load ─────────────────────
+# ── Session state ─────────────────────────────────────────────────────────────
 if "initialized" not in st.session_state:
-    st.session_state.staff_df      = load_staff()
-    off_shift, active_breaks       = load_daily_status()
-    st.session_state.off_shift     = off_shift
-    # Convert active_breaks keys to full shift key format
+    st.session_state.staff_df    = load_staff()
+    off_shift, active_breaks     = load_daily_status()
+    st.session_state.off_shift   = set(off_shift)
     staff_df_init = st.session_state.staff_df
     full_breaks = {}
     for staff_name, break_time in active_breaks.items():
-        # Find which shift this staff belongs to
         if not staff_df_init.empty and "Shift" in staff_df_init.columns:
             match = staff_df_init[staff_df_init["Name"] == staff_name]
             if not match.empty:
@@ -345,6 +339,9 @@ if "initialized" not in st.session_state:
 
 staff_df = st.session_state.staff_df
 logs_df  = load_logs()
+
+def today_local():
+    return now_local().strftime("%Y-%m-%d")
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<div class="page-header"><h1>⏱️ Staff Break Monitor</h1><p>Track break-in and break-out times for your team in real time.</p></div>', unsafe_allow_html=True)
@@ -360,9 +357,7 @@ def get_shift_metrics(shift_name):
     total   = len(shift_staff)
     on_brk  = sum(1 for k in st.session_state.active_breaks if k.startswith(f"{shift_name}_"))
     working = total - on_brk
-    today_records = logs_df[
-        (logs_df["Date"] == today_local()) & (logs_df["Shift"] == shift_name)
-    ] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
+    today_records = logs_df[(logs_df["Date"] == today_local()) & (logs_df["Shift"] == shift_name)] if not logs_df.empty and "Date" in logs_df.columns else pd.DataFrame()
     avg = round(pd.to_numeric(today_records["Duration (min)"], errors="coerce").mean(), 1) if not today_records.empty else 0
     return total, working, on_brk, avg
 
@@ -376,7 +371,6 @@ mc1.markdown(f'<div class="metric-card"><div class="metric-number">{m_total}</di
 mc2.markdown(f'<div class="metric-card"><div class="metric-number">{m_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
 mc3.markdown(f'<div class="metric-card"><div class="metric-number">{m_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
 mc4.markdown(f'<div class="metric-card"><div class="metric-number">{m_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown('<div class="shift-header">🌤️ Afternoon Shift</div>', unsafe_allow_html=True)
@@ -385,7 +379,6 @@ ac1.markdown(f'<div class="metric-card"><div class="metric-number">{a_total}</di
 ac2.markdown(f'<div class="metric-card"><div class="metric-number">{a_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
 ac3.markdown(f'<div class="metric-card"><div class="metric-number">{a_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
 ac4.markdown(f'<div class="metric-card"><div class="metric-number">{a_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
 st.markdown('<div class="shift-header">🌙 Evening Shift</div>', unsafe_allow_html=True)
@@ -394,7 +387,6 @@ ec1.markdown(f'<div class="metric-card"><div class="metric-number">{e_total}</di
 ec2.markdown(f'<div class="metric-card"><div class="metric-number">{e_working}</div><div class="metric-label">Currently Working</div></div>', unsafe_allow_html=True)
 ec3.markdown(f'<div class="metric-card"><div class="metric-number">{e_break}</div><div class="metric-label">On Break</div></div>', unsafe_allow_html=True)
 ec4.markdown(f'<div class="metric-card"><div class="metric-number">{e_avg}m</div><div class="metric-label">Avg Break (today)</div></div>', unsafe_allow_html=True)
-
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -406,60 +398,44 @@ def render_shift(shift_name):
     if st.button(f"🔄 Refresh", key=f"refresh_{shift_name}"):
         st.session_state.staff_df = load_staff()
         st.rerun()
-
     current_staff = st.session_state.staff_df
     if current_staff.empty:
-        st.info("No staff added yet. Go to **Manage Staff** tab to add members.")
+        st.info("No staff added yet. Go to **Manage Staff** tab.")
         return
     if "Shift" not in current_staff.columns:
         st.warning("Shift column missing. Please re-save staff in Manage Staff tab.")
         return
-
-    shift_staff = current_staff[
-        current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()
-    ].copy()
-
+    shift_staff = current_staff[current_staff["Shift"].astype(str).str.strip().str.lower() == shift_name.lower()].copy()
     if shift_staff.empty:
         st.info(f"No staff assigned to {shift_name} Shift.")
         return
-
-    # Sort: On Shift first (Manager/Supervisor at very top), Off Shift at bottom
     if not isinstance(st.session_state.off_shift, set):
         st.session_state.off_shift = set(st.session_state.off_shift)
-    TOP_POS = ["Manager", "Supervisor"]
     shift_staff["_off"]      = shift_staff["Name"].apply(lambda n: 1 if n in st.session_state.off_shift else 0)
-    shift_staff["_priority"] = shift_staff["Position"].apply(lambda p: 0 if p in TOP_POS else 1)
+    shift_staff["_priority"] = shift_staff["Position"].apply(lambda p: 0 if p in TOP_POSITIONS else 1)
     shift_staff = shift_staff.sort_values(["_off","_priority","Name"]).drop(columns=["_off","_priority"]).reset_index(drop=True)
-
     on_shift_count  = sum(1 for n in shift_staff["Name"] if n not in st.session_state.off_shift)
     off_shift_count = len(shift_staff) - on_shift_count
     shown_divider   = False
     current_index   = 0
-
     for _, row in shift_staff.iterrows():
         current_index += 1
         if not shown_divider and current_index > on_shift_count and off_shift_count > 0:
             st.markdown("---")
-            st.markdown("<span style=\'color:#9CA3AF;font-size:0.8rem;font-weight:600\'>⬇️ NOT WORKING TODAY</span>", unsafe_allow_html=True)
+            st.markdown("<span style='color:#9CA3AF;font-size:0.8rem;font-weight:600'>⬇️ NOT WORKING TODAY</span>", unsafe_allow_html=True)
             shown_divider = True
-        staff     = str(row.get("Name","")).strip()
-        position  = str(row.get("Position","")).strip()
-        key_id    = f"{shift_name}_{staff}"
-        is_off    = staff in st.session_state.off_shift
-        on_break  = key_id in st.session_state.active_breaks
-
-        col_info, col_toggle, col_btn = st.columns([3, 1.2, 1])
-
+        staff    = str(row.get("Name","")).strip()
+        position = str(row.get("Position","")).strip()
+        key_id   = f"{shift_name}_{staff}"
+        is_off   = staff in st.session_state.off_shift
+        on_break = key_id in st.session_state.active_breaks
         if is_off:
             badge = '<span class="badge-off-shift">Not Working Today</span>'
         elif on_break:
             badge = '<span class="badge-on-break">On Break</span>'
         else:
             badge = '<span class="badge-working">Working</span>'
-
-        pos_badge  = f'<span class="position-badge">{position}</span>'
-
-        # Break duration color indicator
+        pos_badge = f'<span class="position-badge">{position}</span>'
         break_timer_html = ""
         if on_break and key_id in st.session_state.active_breaks:
             elapsed_mins = (now_local() - st.session_state.active_breaks[key_id]).total_seconds() / 60
@@ -474,37 +450,31 @@ def render_shift(shift_name):
                 timer_class = "break-timer-red"
                 timer_icon  = "🔴"
             break_timer_html = f'<span class="{timer_class}">{timer_icon} {elapsed_str} on break</span>'
-
-        is_top    = position in ["Manager", "Supervisor"]
-        star      = "⭐ " if is_top else ""
+        is_top = position in TOP_POSITIONS
+        star   = "⭐ " if is_top else ""
+        col_info, col_toggle, col_btn = st.columns([3, 1.2, 1])
         col_info.markdown(
             f"**{star}{staff}**<br>{badge} {pos_badge} {break_timer_html}",
             unsafe_allow_html=True
         )
-
         shift_status = col_toggle.radio(
-            "",
-            ["On Shift", "Off Shift"],
+            "", ["On Shift","Off Shift"],
             index=1 if is_off else 0,
             key=f"status_{key_id}",
             horizontal=False,
             label_visibility="collapsed"
         )
-
-        if not isinstance(st.session_state.off_shift, set):
-            st.session_state.off_shift = set(st.session_state.off_shift)
         if shift_status == "Off Shift" and staff not in st.session_state.off_shift:
             st.session_state.off_shift.add(staff)
-            save_shift_status(staff, key_id, "Off Shift")
+            save_shift_status(staff, "Off Shift")
             if key_id in st.session_state.active_breaks:
                 st.session_state.active_breaks.pop(key_id)
                 clear_break_in(staff)
             st.rerun()
         elif shift_status == "On Shift" and staff in st.session_state.off_shift:
             st.session_state.off_shift.discard(staff)
-            save_shift_status(staff, key_id, "On Shift")
+            save_shift_status(staff, "On Shift")
             st.rerun()
-
         if not is_off:
             if on_break:
                 col_btn.markdown('<div class="btn-break-out">', unsafe_allow_html=True)
@@ -523,12 +493,11 @@ def render_shift(shift_name):
                 if col_btn.button("☕ Break In", key=f"in_{key_id}"):
                     break_time = now_local()
                     st.session_state.active_breaks[key_id] = break_time
-                    save_break_in(staff, key_id, break_time)
+                    save_break_in(staff, break_time)
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
         else:
             col_btn.markdown("")
-
         st.divider()
 
 with tab_morning:
@@ -543,40 +512,15 @@ with tab_evening:
     st.subheader("🌙 Evening Shift")
     render_shift("Evening")
 
-
+# ── Tasks Tab ─────────────────────────────────────────────────────────────────
 with tab_tasks:
     st.subheader("📌 Tasks")
-
-    # Shift selector
     task_shift = st.radio("Select Shift", ["Morning","Afternoon","Evening"], horizontal=True, key="task_shift_select")
-
     st.markdown("---")
-
-    # Add new task
     with st.expander("➕ Add New Task", expanded=True):
-        TASK_LIST = [
-            "Back of the House",
-            "Front - Restock Supplies",
-            "Drive Thru - Restock Supplies",
-            "Clean - Merry Chef",
-            "Clean - Machine",
-            "Clean - Showcase",
-            "Washroom",
-            "Garbage",
-            "Sweeping - Front",
-            "Sweeping - Lobby",
-            "Mopping - Lobby",
-            "Mopping - Front",
-            "Lobby Checking",
-            "Cleaning",
-            "Lot Pick-up",
-        ]
-        # Filter out tasks already assigned today for this shift
-        existing_tasks_df = load_tasks()
-        if not existing_tasks_df.empty and "Shift" in existing_tasks_df.columns:
-            already_assigned = existing_tasks_df[
-                existing_tasks_df["Shift"] == task_shift
-            ]["Task"].tolist()
+        tasks_df_check = load_tasks()
+        if not tasks_df_check.empty and "Shift" in tasks_df_check.columns:
+            already_assigned = tasks_df_check[tasks_df_check["Shift"] == task_shift]["Task"].tolist()
         else:
             already_assigned = []
         available_tasks = [t for t in TASK_LIST if t not in already_assigned]
@@ -585,112 +529,79 @@ with tab_tasks:
             task_desc = None
         else:
             task_desc = st.selectbox("Select Task", available_tasks, key="task_desc_select")
-        # Only show staff on shift today and not marked off
+        if not isinstance(st.session_state.off_shift, set):
+            st.session_state.off_shift = set(st.session_state.off_shift)
         if not staff_df.empty and "Shift" in staff_df.columns:
-            if not isinstance(st.session_state.off_shift, set):
-                st.session_state.off_shift = set(st.session_state.off_shift)
             on_shift_staff = staff_df[
                 (staff_df["Shift"].astype(str).str.strip().str.lower() == task_shift.lower()) &
                 (~staff_df["Name"].isin(st.session_state.off_shift))
             ]["Name"].tolist()
         else:
             on_shift_staff = []
-        task_assign = st.selectbox("Assign To", ["Anyone"] + on_shift_staff, key="task_assign")
+        task_assign   = st.selectbox("Assign To", ["Anyone"] + on_shift_staff, key="task_assign")
         task_priority = st.radio("Priority", ["Normal","High","Urgent"], horizontal=True, key="task_priority")
         if st.button("➕ Add Task"):
             if task_desc is not None:
-                add_task(task_shift, task_desc.strip(), task_assign, task_priority)
+                add_task(task_shift, task_desc, task_assign, task_priority)
                 st.success(f"✅ Task added for {task_shift} Shift!")
                 st.rerun()
-            else:
-                st.warning("Please enter a task description.")
-
     st.markdown("---")
-
-    # Load and display tasks
     if st.button("🔄 Refresh Tasks"):
+        load_tasks.clear()
         st.rerun()
-
-    tasks_df = load_tasks()
+    tasks_df  = load_tasks()
     shift_tasks = tasks_df[tasks_df["Shift"] == task_shift].reset_index(drop=True) if not tasks_df.empty and "Shift" in tasks_df.columns else pd.DataFrame()
-
     if shift_tasks.empty:
         st.info(f"No tasks for {task_shift} Shift today. Add one above!")
     else:
-        # Summary counts
         total_tasks   = len(shift_tasks)
         pending_count = len(shift_tasks[shift_tasks["Status"] == "Pending"])
         done_count    = len(shift_tasks[shift_tasks["Status"] == "Done"])
-
         sc1, sc2, sc3 = st.columns(3)
         sc1.markdown(f'<div class="metric-card"><div class="metric-number">{total_tasks}</div><div class="metric-label">Total Tasks</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-card"><div class="metric-number" style="color:#E24B4A">{pending_count}</div><div class="metric-label">Pending</div></div>', unsafe_allow_html=True)
         sc3.markdown(f'<div class="metric-card"><div class="metric-number" style="color:#16A34A">{done_count}</div><div class="metric-label">Done</div></div>', unsafe_allow_html=True)
-
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Staff task summary ────────────────────────────────────────────────
-        st.markdown("#### 👤 Staff Task Summary")
         assigned_staff = shift_tasks[shift_tasks["Assigned To"] != "Anyone"]
         if not assigned_staff.empty:
+            st.markdown("#### 👤 Staff Task Summary")
             staff_task_counts = assigned_staff.groupby("Assigned To").agg(
                 Total=("Task","count"),
-                Done=("Status", lambda x: (x == "Done").sum()),
-                Pending=("Status", lambda x: (x == "Pending").sum())
+                Done=("Status", lambda x: (x=="Done").sum()),
+                Pending=("Status", lambda x: (x=="Pending").sum())
             ).reset_index().sort_values("Total", ascending=False)
-
             for _, srow in staff_task_counts.iterrows():
-                sname   = srow["Assigned To"]
-                total   = srow["Total"]
-                done    = srow["Done"]
-                pending = srow["Pending"]
-                task_word = "task" if total == 1 else "tasks"
-
-                scol1, scol2 = st.columns([3, 2])
-                scol1.markdown(
-                    f"**{sname}** — {total} {task_word} assigned",
-                    unsafe_allow_html=True
-                )
-                scol2.markdown(
+                sname    = srow["Assigned To"]
+                total    = srow["Total"]
+                done     = srow["Done"]
+                pending  = srow["Pending"]
+                tw       = "task" if total == 1 else "tasks"
+                sc1, sc2 = st.columns([3,2])
+                sc1.markdown(f"**{sname}** — {total} {tw} assigned")
+                sc2.markdown(
                     f'<span style="background:#EAF3DE;color:#3B6D11;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600">✅ {done} done</span> '
                     f'<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:20px;font-size:0.75rem;font-weight:600">⏳ {pending} pending</span>',
                     unsafe_allow_html=True
                 )
-        else:
-            st.caption("No tasks assigned to specific staff yet.")
-
         st.markdown("---")
-
-        # Pending tasks first, Done at bottom
         pending_tasks = shift_tasks[shift_tasks["Status"] == "Pending"]
         done_tasks    = shift_tasks[shift_tasks["Status"] == "Done"]
-
         def render_task(row, original_index):
-            is_done    = row["Status"] == "Done"
-            priority   = str(row.get("Priority","Normal"))
-            assigned   = str(row.get("Assigned To","Anyone"))
-            task_text  = str(row.get("Task",""))
-
-            # Priority color
+            is_done  = row["Status"] == "Done"
+            priority = str(row.get("Priority","Normal"))
+            assigned = str(row.get("Assigned To","Anyone"))
+            task_text = str(row.get("Task",""))
             if priority == "Urgent":
-                p_color = "#991B1B"
-                p_bg    = "#FEE2E2"
+                p_color, p_bg = "#991B1B", "#FEE2E2"
             elif priority == "High":
-                p_color = "#92400E"
-                p_bg    = "#FEF3C7"
+                p_color, p_bg = "#92400E", "#FEF3C7"
             else:
-                p_color = "#1D4ED8"
-                p_bg    = "#EFF6FF"
-
+                p_color, p_bg = "#1D4ED8", "#EFF6FF"
             col_check, col_info, col_del = st.columns([0.5, 4, 0.5])
-
-            # Toggle button styled as checkbox
             btn_label = "✅" if is_done else "⬜"
             if col_check.button(btn_label, key=f"toggle_{task_shift}_{original_index}"):
                 toggle_task_status(original_index, row["Status"])
                 st.rerun()
-
-            # Task info
             task_style = "text-decoration: line-through; color: var(--color-text-secondary);" if is_done else ""
             col_info.markdown(
                 f'<p style="{task_style} margin:0; font-size:0.9rem; font-weight:500">{task_text}</p>'
@@ -698,23 +609,18 @@ with tab_tasks:
                 f'<span style="background:{p_bg};color:{p_color};padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:600">{priority}</span></span>',
                 unsafe_allow_html=True
             )
-
             if col_del.button("🗑️", key=f"del_task_{task_shift}_{original_index}"):
                 delete_task(original_index)
                 st.rerun()
-
             st.divider()
-
-        # Show pending first
         for idx, row in pending_tasks.iterrows():
             render_task(row, idx)
-
-        # Show done section
         if not done_tasks.empty:
             st.markdown("<span style='color:#9CA3AF;font-size:0.8rem;font-weight:600'>✅ COMPLETED</span>", unsafe_allow_html=True)
             for idx, row in done_tasks.iterrows():
                 render_task(row, idx)
 
+# ── Break Log Tab ─────────────────────────────────────────────────────────────
 with tab_logs:
     st.subheader("📋 Break Log")
     if st.button("🔄 Refresh Logs"):
@@ -749,6 +655,7 @@ with tab_logs:
             ).reset_index().rename(columns={"Total_Minutes":"Total Break (min)"}).sort_values("Total Break (min)", ascending=False)
             st.dataframe(summary, use_container_width=True, hide_index=True)
 
+# ── Manage Staff Tab ──────────────────────────────────────────────────────────
 with tab_manage:
     st.subheader("👥 Manage Staff")
     with st.expander("➕ Add New Staff Member", expanded=True):
@@ -782,8 +689,9 @@ with tab_manage:
                 st.markdown(f"{'⭐ ' if is_top else ''}**{staff_name}**")
                 pos_index   = POSITIONS.index(staff_pos) if staff_pos in POSITIONS else 0
                 new_pos     = st.selectbox("Position", POSITIONS, index=pos_index, key=f"pos_{staff_name}")
-                shift_index = 0 if staff_shift.lower() == "morning" else (1 if staff_shift.lower() == "afternoon" else 2)
-                new_shift   = st.radio("Shift", ["Morning","Afternoon","Evening"], index=shift_index, key=f"shift_{staff_name}", horizontal=True)
+                shift_options = ["Morning","Afternoon","Evening"]
+                shift_index = shift_options.index(staff_shift) if staff_shift in shift_options else 0
+                new_shift   = st.radio("Shift", shift_options, index=shift_index, key=f"shift_{staff_name}", horizontal=True)
                 col_save, col_del = st.columns(2)
                 if col_save.button("💾 Save", key=f"save_{staff_name}"):
                     update_staff_row(staff_name, new_pos, new_shift)
