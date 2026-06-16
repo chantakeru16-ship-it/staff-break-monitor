@@ -207,7 +207,7 @@ def save_shift_status(staff, shift_key, status):
 
         # No existing row — create new one
         sheet.append_row([today, staff, status, ""])
-    load_daily_status.clear()
+        load_daily_status.clear()
     except Exception as e:
         st.error(f"Error saving shift status: {e}")
 
