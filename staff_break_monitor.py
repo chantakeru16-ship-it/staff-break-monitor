@@ -4,6 +4,7 @@ from datetime import datetime, date
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
+import time
 
 st.set_page_config(page_title="Staff Break Monitor", page_icon="⏱️", layout="wide")
 
@@ -68,6 +69,17 @@ POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup
 TOP_POSITIONS = ["Manager", "Supervisor"]
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
+def retry_api(func, retries=3, delay=2):
+    """Retry a Google Sheets API call on failure."""
+    for attempt in range(retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(delay)
+            else:
+                raise e
+
 @st.cache_resource
 def get_spreadsheet():
     scopes = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
@@ -189,31 +201,32 @@ def save_shift_status(staff, shift_key, status):
 
 def save_break_in(staff, shift_key, break_in_time):
     """Save break-in time for a staff member today."""
-    try:
+    def _save():
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
         today   = today_local()
-
         for i, row in enumerate(records):
             if str(row.get("Date","")).strip() == today and str(row.get("Staff","")).strip() == staff:
                 sheet.update_cell(i+2, 4, break_in_time.strftime("%H:%M:%S"))
                 return
-
         sheet.append_row([today, staff, "On Shift", break_in_time.strftime("%H:%M:%S")])
+    try:
+        retry_api(_save)
     except Exception as e:
-        st.error(f"Error saving break in: {e}")
+        st.error(f"Error saving break in — please try again: {e}")
 
 def clear_break_in(staff):
     """Clear break-in time after break out."""
-    try:
+    def _clear():
         sheet   = get_sheet("Daily Status")
         records = sheet.get_all_records()
         today   = today_local()
-
         for i, row in enumerate(records):
             if str(row.get("Date","")).strip() == today and str(row.get("Staff","")).strip() == staff:
                 sheet.update_cell(i+2, 4, "")
                 return
+    try:
+        retry_api(_clear)
     except Exception as e:
         st.error(f"Error clearing break in: {e}")
 
@@ -233,8 +246,13 @@ def load_logs():
         return pd.DataFrame(columns=["Staff","Position","Shift","Date","Break In","Break Out","Duration (min)"])
 
 def save_log(staff, position, shift, date_str, break_in, break_out, duration):
-    sheet = get_sheet("Break Logs")
-    sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
+    def _save():
+        sheet = get_sheet("Break Logs")
+        sheet.append_row([staff, position, shift, date_str, break_in, break_out, duration])
+    try:
+        retry_api(_save)
+    except Exception as e:
+        st.error(f"Error saving break log — please tap Break Out again: {e}")
 
 
 # ── Task functions ────────────────────────────────────────────────────────────
@@ -485,7 +503,6 @@ def render_shift(shift_name):
                              break_in_dt.strftime("%H:%M:%S"),
                              break_out_dt.strftime("%H:%M:%S"), duration)
                     clear_break_in(staff)
-                    st.toast(f"✅ {staff}, your break is over! ({duration} min)", icon="✅")
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
             else:
@@ -494,7 +511,6 @@ def render_shift(shift_name):
                     break_time = now_local()
                     st.session_state.active_breaks[key_id] = break_time
                     save_break_in(staff, key_id, break_time)
-                    st.toast(f"☕ {staff}, your break has started!", icon="☕")
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
         else:
