@@ -91,11 +91,18 @@ def get_sheet(name):
     spreadsheet = get_spreadsheet()
     try:
         return spreadsheet.worksheet(name)
-    except:
-        sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
-        return sheet
+    except gspread.exceptions.WorksheetNotFound:
+        try:
+            sheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=10)
+            return sheet
+        except Exception:
+            # Sheet already exists, just return it
+            return spreadsheet.worksheet(name)
+    except Exception as e:
+        raise e
 
 # ── Staff ─────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
 def load_staff():
     try:
         sheet = get_sheet("Staff List")
@@ -126,6 +133,7 @@ def save_staff_member(name, position, shift):
     if not existing:
         sheet.append_row(["Name","Position","Shift"])
     sheet.append_row([name, position, shift])
+    load_staff.clear()
 
 def update_staff_row(name, new_position, new_shift):
     sheet = get_sheet("Staff List")
@@ -135,6 +143,7 @@ def update_staff_row(name, new_position, new_shift):
             sheet.update_cell(i+2, 2, new_position)
             sheet.update_cell(i+2, 3, new_shift)
             break
+    load_staff.clear()
 
 def delete_staff_member(name):
     sheet = get_sheet("Staff List")
@@ -143,8 +152,10 @@ def delete_staff_member(name):
         if str(row.get("Name","")).strip() == name:
             sheet.delete_rows(i+2)
             break
+    load_staff.clear()
 
 # ── Daily Status (On/Off Shift + Active Breaks) — saved to Google Sheets ──────
+@st.cache_data(ttl=60)
 def load_daily_status():
     """Load today's On/Off Shift status and active breaks from Google Sheets."""
     try:
@@ -196,6 +207,7 @@ def save_shift_status(staff, shift_key, status):
 
         # No existing row — create new one
         sheet.append_row([today, staff, status, ""])
+    load_daily_status.clear()
     except Exception as e:
         st.error(f"Error saving shift status: {e}")
 
@@ -256,6 +268,7 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
 
 
 # ── Task functions ────────────────────────────────────────────────────────────
+@st.cache_data(ttl=60)
 def load_tasks():
     try:
         sheet   = get_sheet("Tasks")
