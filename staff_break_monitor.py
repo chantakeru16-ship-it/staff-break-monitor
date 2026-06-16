@@ -692,7 +692,7 @@ with tab_logs:
         st.rerun()
     filter_staff = st.selectbox("Filter by staff", ["All"] + (staff_df["Name"].tolist() if not staff_df.empty else []))
     filter_shift = st.selectbox("Filter by shift", ["All","Morning","Afternoon","Evening"])
-    filter_date  = st.date_input("Filter by date", value=date.today())
+    filter_date  = st.date_input("Filter by date", value=now_local().date())
     logs = logs_df.copy()
     if not logs.empty and "Date" in logs.columns:
         logs = logs[logs["Date"] == str(filter_date)]
