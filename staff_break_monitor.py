@@ -433,7 +433,7 @@ def render_shift(shift_name):
         if on_break and key_id in st.session_state.active_breaks:
             elapsed_mins = (now_local() - st.session_state.active_breaks[key_id]).total_seconds() / 60
             elapsed_str  = f"{int(elapsed_mins)}m {int((elapsed_mins % 1) * 60)}s"
-            if elapsed_mins < 10:
+            if elapsed_mins < 13:
                 timer_class = "break-timer-green"
                 timer_icon  = "🟢"
             elif elapsed_mins < 15:
@@ -485,7 +485,7 @@ def render_shift(shift_name):
                              break_in_dt.strftime("%H:%M:%S"),
                              break_out_dt.strftime("%H:%M:%S"), duration)
                     clear_break_in(staff)
-                    st.toast(f"✅ {staff} back ({duration} min)")
+                    st.toast(f"✅ {staff}, your break is over! ({duration} min)", icon="✅")
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
             else:
@@ -494,7 +494,7 @@ def render_shift(shift_name):
                     break_time = now_local()
                     st.session_state.active_breaks[key_id] = break_time
                     save_break_in(staff, key_id, break_time)
-                    st.toast(f"☕ {staff} on break")
+                    st.toast(f"☕ {staff}, your break has started!", icon="☕")
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
         else:
