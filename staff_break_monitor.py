@@ -601,10 +601,32 @@ with tab_tasks:
         st.markdown("---")
         pending_tasks = shift_tasks[shift_tasks["Status"] == "Pending"]
         done_tasks    = shift_tasks[shift_tasks["Status"] == "Done"]
+
+        # ── Bulk delete section ───────────────────────────────────────────────
+        if f"selected_tasks_{task_shift}" not in st.session_state:
+            st.session_state[f"selected_tasks_{task_shift}"] = []
+
+        selected = st.session_state[f"selected_tasks_{task_shift}"]
+
+        # Bulk delete button
+        if selected:
+            st.warning(f"⚠️ {len(selected)} task(s) selected")
+            col_del_all, col_cancel = st.columns(2)
+            if col_del_all.button(f"🗑️ Delete {len(selected)} Selected Task(s)", key=f"bulk_del_{task_shift}"):
+                # Delete in reverse order to preserve indices
+                for idx in sorted(selected, reverse=True):
+                    delete_task(idx)
+                st.session_state[f"selected_tasks_{task_shift}"] = []
+                st.rerun()
+            if col_cancel.button("✖️ Cancel Selection", key=f"cancel_sel_{task_shift}"):
+                st.session_state[f"selected_tasks_{task_shift}"] = []
+                st.rerun()
+            st.markdown("---")
+
         def render_task(row, original_index):
-            is_done  = row["Status"] == "Done"
-            priority = str(row.get("Priority","Normal"))
-            assigned = str(row.get("Assigned To","Anyone"))
+            is_done   = row["Status"] == "Done"
+            priority  = str(row.get("Priority","Normal"))
+            assigned  = str(row.get("Assigned To","Anyone"))
             task_text = str(row.get("Task",""))
             if priority == "Urgent":
                 p_color, p_bg = "#991B1B", "#FEE2E2"
@@ -612,22 +634,41 @@ with tab_tasks:
                 p_color, p_bg = "#92400E", "#FEF3C7"
             else:
                 p_color, p_bg = "#1D4ED8", "#EFF6FF"
-            col_check, col_info, col_del = st.columns([0.5, 4, 0.5])
+
+            is_selected = original_index in st.session_state[f"selected_tasks_{task_shift}"]
+            col_select, col_check, col_info, col_del = st.columns([0.4, 0.4, 4, 0.5])
+
+            # Selection checkbox
+            checked = col_select.checkbox("", value=is_selected, key=f"sel_{task_shift}_{original_index}", label_visibility="collapsed")
+            if checked and original_index not in st.session_state[f"selected_tasks_{task_shift}"]:
+                st.session_state[f"selected_tasks_{task_shift}"].append(original_index)
+                st.rerun()
+            elif not checked and original_index in st.session_state[f"selected_tasks_{task_shift}"]:
+                st.session_state[f"selected_tasks_{task_shift}"].remove(original_index)
+                st.rerun()
+
+            # Done/Pending toggle
             btn_label = "✅" if is_done else "⬜"
             if col_check.button(btn_label, key=f"toggle_{task_shift}_{original_index}"):
                 toggle_task_status(original_index, row["Status"])
                 st.rerun()
-            task_style = "text-decoration: line-through; color: var(--color-text-secondary);" if is_done else ""
+
+            task_style = "text-decoration: line-through; color: #9CA3AF;" if is_done else ""
+            # Highlight selected row
+            bg_style = "background:#FEF9C3; padding:4px 8px; border-radius:6px;" if is_selected else ""
             col_info.markdown(
-                f'<p style="{task_style} margin:0; font-size:0.9rem; font-weight:500">{task_text}</p>'
+                f'<div style="{bg_style}"><p style="{task_style} margin:0; font-size:0.9rem; font-weight:500">{task_text}</p>'
                 f'<span style="font-size:0.75rem;color:#6B7280">👤 {assigned} &nbsp;'
-                f'<span style="background:{p_bg};color:{p_color};padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:600">{priority}</span></span>',
+                f'<span style="background:{p_bg};color:{p_color};padding:1px 7px;border-radius:20px;font-size:0.7rem;font-weight:600">{priority}</span></span></div>',
                 unsafe_allow_html=True
             )
             if col_del.button("🗑️", key=f"del_task_{task_shift}_{original_index}"):
                 delete_task(original_index)
+                if original_index in st.session_state[f"selected_tasks_{task_shift}"]:
+                    st.session_state[f"selected_tasks_{task_shift}"].remove(original_index)
                 st.rerun()
             st.divider()
+
         for idx, row in pending_tasks.iterrows():
             render_task(row, idx)
         if not done_tasks.empty:
