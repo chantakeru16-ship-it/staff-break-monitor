@@ -114,7 +114,7 @@ def retry_api(func, retries=3, delay=2):
                 raise e
 
 # ── Staff ─────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=1800)
 def load_staff():
     try:
         sheet = get_sheet("Staff List")
@@ -167,7 +167,7 @@ def delete_staff_member(name):
     load_staff.clear()
 
 # ── Daily Status ──────────────────────────────────────────────────────────────
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_daily_status():
     try:
         sheet   = get_sheet("Daily Status")
@@ -267,7 +267,7 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
         st.error(f"Error saving break log — please tap Break Out again: {e}")
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def load_all_tasks():
     """Load ALL task records for summary view — includes Pending, Done and Deleted.
     This ensures Task Summary always shows who was assigned regardless of task status."""
@@ -282,7 +282,7 @@ def load_all_tasks():
         st.error(f"Error loading all tasks: {e}")
         return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_tasks():
     try:
         sheet   = get_sheet("Tasks")
@@ -344,9 +344,15 @@ def delete_task(task_row_index):
 
 # ── Session state ─────────────────────────────────────────────────────────────
 if "initialized" not in st.session_state:
-    st.session_state.staff_df    = load_staff()
-    off_shift, active_breaks     = load_daily_status()
-    st.session_state.off_shift   = set(off_shift)
+    try:
+        st.session_state.staff_df = load_staff()
+    except:
+        st.session_state.staff_df = pd.DataFrame(columns=["Name","Position","Shift"])
+    try:
+        off_shift, active_breaks = load_daily_status()
+    except:
+        off_shift, active_breaks = set(), {}
+    st.session_state.off_shift = set(off_shift)
     staff_df_init = st.session_state.staff_df
     full_breaks = {}
     for staff_name, break_time in active_breaks.items():
