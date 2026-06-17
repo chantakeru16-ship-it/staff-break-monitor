@@ -267,18 +267,17 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
         st.error(f"Error saving break log — please tap Break Out again: {e}")
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_all_tasks():
-    """Load all task records for summary view — excludes Deleted tasks."""
+    """Load ALL task records for summary view — includes Pending, Done and Deleted.
+    This ensures Task Summary always shows who was assigned regardless of task status."""
     try:
         sheet   = get_sheet("Tasks")
         records = sheet.get_all_records()
         if not records:
             return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
         df = pd.DataFrame(records)
-        # Exclude deleted tasks from summary
-        df = df[df["Status"].astype(str).str.strip() != "Deleted"]
-        return df
+        return df  # Return ALL records — summary shows full assignment history
     except Exception as e:
         st.error(f"Error loading all tasks: {e}")
         return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
@@ -734,8 +733,17 @@ with tab_summary:
                         (tasks_df["Date"].astype(str).str.strip() == date_str) &
                         (tasks_df["Shift"].astype(str).str.strip() == shift_name) &
                         (tasks_df["Task"].astype(str).str.strip() == task)
+                        # No status filter — show ALL assignments including deleted ones
                     ]
-                    row[task] = ", ".join(match["Assigned To"].tolist()) if not match.empty else ""
+                    if not match.empty:
+                        # Prefer non-deleted entries first
+                        non_deleted = match[match["Status"].astype(str).str.strip() != "Deleted"]
+                        if not non_deleted.empty:
+                            row[task] = ", ".join(non_deleted["Assigned To"].tolist())
+                        else:
+                            row[task] = ", ".join(match["Assigned To"].tolist())
+                    else:
+                        row[task] = ""
                 else:
                     row[task] = ""
             rows.append(row)
