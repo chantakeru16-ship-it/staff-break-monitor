@@ -848,10 +848,22 @@ with tab_manage:
     st.markdown("---")
     st.markdown("#### Current Staff")
     st.caption("⭐ Manager/Supervisor always at top. 💾 save · 🗑️ remove")
+
+    # Search box
+    search_name = st.text_input("🔍 Search staff name", placeholder="Type name to search...", key="search_staff")
+
     if staff_df.empty:
         st.info("No staff yet. Add one above!")
     else:
-        for _, row in staff_df.iterrows():
+        # Filter by search
+        if search_name.strip():
+            filtered_staff = staff_df[staff_df["Name"].astype(str).str.lower().str.contains(search_name.strip().lower())]
+            if filtered_staff.empty:
+                st.warning(f"No staff found matching **'{search_name}'**")
+        else:
+            filtered_staff = staff_df
+
+        for _, row in filtered_staff.iterrows():
             staff_name  = str(row.get("Name","")).strip()
             staff_pos   = str(row.get("Position", POSITIONS[0])).strip()
             staff_shift = str(row.get("Shift", "Morning")).strip()
