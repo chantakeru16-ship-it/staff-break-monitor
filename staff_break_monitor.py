@@ -68,21 +68,23 @@ SPREADSHEET_ID = "108ue_S_as7pX8CD-dUXUPaAw5WrskilsCZXwb7kbOzY"
 POSITIONS = ["Manager","Supervisor","Baker","Front Crew","Drive Thru Crew","Soup & Sandwich","Front / Drive Thru Crew","Prep"]
 TOP_POSITIONS = ["Manager", "Supervisor"]
 TASK_LIST = [
-    "Back of the House",
-    "Front - Restock Supplies",
-    "Drive Thru - Restock Supplies",
-    "Clean - Merry Chef",
-    "Clean - Machine",
-    "Clean - Showcase",
-    "Washroom",
+    "Soup & Sandwich",
+    "In Sweep",
+    "In Mop",
+    "Front Stock",
+    "DT Stock",
+    "Machine",
+    "Showcase",
     "Garbage",
-    "Sweeping - Front",
-    "Sweeping - Lobby",
-    "Mopping - Lobby",
-    "Mopping - Front",
-    "Lobby Checking",
-    "Cleaning",
+    "Washroom",
+    "Merrychef",
+    "Out Sweep",
+    "Out Mop",
+    "Cleaning Surface",
+    "Lobby Check",
     "Lot Pick-up",
+    "Restock - Back",
+    "BOH - Back House",
 ]
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
@@ -266,6 +268,19 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
+def load_all_tasks():
+    """Load all task records for summary view."""
+    try:
+        sheet   = get_sheet("Tasks")
+        records = sheet.get_all_records()
+        if not records:
+            return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
+        return pd.DataFrame(records)
+    except Exception as e:
+        st.error(f"Error loading all tasks: {e}")
+        return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
+
+@st.cache_data(ttl=60)
 def load_tasks():
     try:
         sheet   = get_sheet("Tasks")
@@ -390,8 +405,8 @@ ec4.markdown(f'<div class="metric-card"><div class="metric-number">{e_avg}m</div
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_morning, tab_afternoon, tab_evening, tab_tasks, tab_logs, tab_manage = st.tabs([
-    "☀️ Morning Shift", "🌤️ Afternoon Shift", "🌙 Evening Shift", "📌 Tasks", "📋 Break Log", "👥 Manage Staff"
+tab_morning, tab_afternoon, tab_evening, tab_tasks, tab_summary, tab_logs, tab_manage = st.tabs([
+    "☀️ Morning Shift", "🌤️ Afternoon Shift", "🌙 Evening Shift", "📌 Tasks", "📊 Task Summary", "📋 Break Log", "👥 Manage Staff"
 ])
 
 def render_shift(shift_name):
@@ -619,6 +634,121 @@ with tab_tasks:
             st.markdown("<span style='color:#9CA3AF;font-size:0.8rem;font-weight:600'>✅ COMPLETED</span>", unsafe_allow_html=True)
             for idx, row in done_tasks.iterrows():
                 render_task(row, idx)
+
+
+# ── Task Summary Tab ──────────────────────────────────────────────────────────
+with tab_summary:
+    st.subheader("📊 Task Summary")
+
+    from datetime import timedelta
+
+    # Week filter
+    today_dt = now_local().date()
+    days_since_monday  = today_dt.weekday()
+    current_week_start = today_dt - timedelta(days=days_since_monday)
+    prev_week_start    = current_week_start - timedelta(days=7)
+
+    week_choice = st.radio(
+        "Select Week",
+        ["This Week", "Last Week"],
+        horizontal=True,
+        key="week_choice"
+    )
+
+    if week_choice == "This Week":
+        week_start = current_week_start
+    else:
+        week_start = prev_week_start
+
+    week_end = week_start + timedelta(days=6)
+    st.caption(f"Showing: **{week_start.strftime('%b %d')} — {week_end.strftime('%b %d, %Y')}**")
+
+    if st.button("🔄 Refresh Summary"):
+        load_all_tasks.clear()
+        st.rerun()
+
+    all_tasks  = load_all_tasks()
+    date_range = [week_start + timedelta(days=i) for i in range(7)]
+
+    def build_summary_grid(shift_name, tasks_df):
+        rows = []
+        for d in date_range:
+            date_str     = d.strftime("%Y-%m-%d")
+            date_display = d.strftime("%b %d")
+            day_name     = d.strftime("%a")
+            row = {"Date": date_display, "Day": day_name}
+            for task in TASK_LIST:
+                if not tasks_df.empty and "Date" in tasks_df.columns:
+                    match = tasks_df[
+                        (tasks_df["Date"].astype(str).str.strip() == date_str) &
+                        (tasks_df["Shift"].astype(str).str.strip() == shift_name) &
+                        (tasks_df["Task"].astype(str).str.strip() == task)
+                    ]
+                    row[task] = ", ".join(match["Assigned To"].tolist()) if not match.empty else ""
+                else:
+                    row[task] = ""
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def highlight_today(row):
+        if row["Date"] == today_dt.strftime("%b %d"):
+            return ["background-color: #EFF6FF; font-weight: bold"] * len(row)
+        return [""] * len(row)
+
+    # ── Morning Shift ─────────────────────────────────────────────────────────
+    st.markdown("### ☀️ Morning Shift")
+    morning_df = build_summary_grid("Morning", all_tasks)
+    if morning_df.empty or morning_df[TASK_LIST].replace("", pd.NA).isna().all().all():
+        st.info("No Morning tasks recorded this week.")
+    else:
+        st.dataframe(
+            morning_df.style.apply(highlight_today, axis=1),
+            use_container_width=True, hide_index=True, height=300
+        )
+        st.download_button(
+            "⬇️ Download Morning CSV",
+            morning_df.to_csv(index=False).encode(),
+            f"morning_tasks_{week_start}_{week_end}.csv", "text/csv",
+            key="dl_morning"
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Afternoon Shift ───────────────────────────────────────────────────────
+    st.markdown("### 🌤️ Afternoon Shift")
+    afternoon_df = build_summary_grid("Afternoon", all_tasks)
+    if afternoon_df.empty or afternoon_df[TASK_LIST].replace("", pd.NA).isna().all().all():
+        st.info("No Afternoon tasks recorded this week.")
+    else:
+        st.dataframe(
+            afternoon_df.style.apply(highlight_today, axis=1),
+            use_container_width=True, hide_index=True, height=300
+        )
+        st.download_button(
+            "⬇️ Download Afternoon CSV",
+            afternoon_df.to_csv(index=False).encode(),
+            f"afternoon_tasks_{week_start}_{week_end}.csv", "text/csv",
+            key="dl_afternoon"
+        )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Evening Shift ─────────────────────────────────────────────────────────
+    st.markdown("### 🌙 Evening Shift")
+    evening_df = build_summary_grid("Evening", all_tasks)
+    if evening_df.empty or evening_df[TASK_LIST].replace("", pd.NA).isna().all().all():
+        st.info("No Evening tasks recorded this week.")
+    else:
+        st.dataframe(
+            evening_df.style.apply(highlight_today, axis=1),
+            use_container_width=True, hide_index=True, height=300
+        )
+        st.download_button(
+            "⬇️ Download Evening CSV",
+            evening_df.to_csv(index=False).encode(),
+            f"evening_tasks_{week_start}_{week_end}.csv", "text/csv",
+            key="dl_evening"
+        )
 
 # ── Break Log Tab ─────────────────────────────────────────────────────────────
 with tab_logs:
