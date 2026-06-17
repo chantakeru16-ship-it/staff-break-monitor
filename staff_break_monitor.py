@@ -269,13 +269,16 @@ def save_log(staff, position, shift, date_str, break_in, break_out, duration):
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60)
 def load_all_tasks():
-    """Load all task records for summary view."""
+    """Load all task records for summary view — excludes Deleted tasks."""
     try:
         sheet   = get_sheet("Tasks")
         records = sheet.get_all_records()
         if not records:
             return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        # Exclude deleted tasks from summary
+        df = df[df["Status"].astype(str).str.strip() != "Deleted"]
+        return df
     except Exception as e:
         st.error(f"Error loading all tasks: {e}")
         return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
@@ -290,7 +293,10 @@ def load_tasks():
             sheet.append_row(["Date","Shift","Task","Assigned To","Priority","Status"])
             return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
         df = pd.DataFrame(records)
-        return df[df["Date"].astype(str).str.strip() == today_local()].reset_index(drop=True)
+        # Only show today's tasks that are NOT deleted
+        df = df[df["Date"].astype(str).str.strip() == today_local()]
+        df = df[df["Status"].astype(str).str.strip() != "Deleted"]
+        return df.reset_index(drop=True)
     except Exception as e:
         st.error(f"Error loading tasks: {e}")
         return pd.DataFrame(columns=["Date","Shift","Task","Assigned To","Priority","Status"])
@@ -321,15 +327,16 @@ def toggle_task_status(task_row_index, current_status):
         st.error(f"Error updating task: {e}")
 
 def delete_task(task_row_index):
+    """Mark task as Deleted instead of removing row — keeps history for Task Summary."""
     try:
         sheet   = get_sheet("Tasks")
         records = sheet.get_all_records()
         today   = today_local()
         count   = 0
         for i, row in enumerate(records):
-            if str(row.get("Date","")).strip() == today:
+            if str(row.get("Date","")).strip() == today and str(row.get("Status","")).strip() != "Deleted":
                 if count == task_row_index:
-                    sheet.delete_rows(i+2)
+                    sheet.update_cell(i+2, 6, "Deleted")
                     load_tasks.clear()
                     return
                 count += 1
@@ -535,7 +542,10 @@ with tab_tasks:
     with st.expander("➕ Add New Task", expanded=True):
         tasks_df_check = load_tasks()
         if not tasks_df_check.empty and "Shift" in tasks_df_check.columns:
-            already_assigned = tasks_df_check[tasks_df_check["Shift"] == task_shift]["Task"].tolist()
+            already_assigned = tasks_df_check[
+                (tasks_df_check["Shift"] == task_shift) &
+                (tasks_df_check["Status"].astype(str).str.strip() != "Deleted")
+            ]["Task"].tolist()
         else:
             already_assigned = []
         available_tasks = [t for t in TASK_LIST if t not in already_assigned]
