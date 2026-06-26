@@ -352,6 +352,15 @@ if "initialized" not in st.session_state:
         off_shift, active_breaks = load_daily_status()
     except:
         off_shift, active_breaks = set(), {}
+
+    # ── Auto reset on new day ─────────────────────────────────────────────────
+    # If last saved date is different from today, reset everyone to On Shift
+    last_date = st.session_state.get("last_active_date", None)
+    today_date = today_local()
+    if last_date is not None and last_date != today_date:
+        off_shift    = set()
+        active_breaks = {}
+    st.session_state.last_active_date = today_date
     st.session_state.off_shift = set(off_shift)
     staff_df_init = st.session_state.staff_df
     full_breaks = {}
