@@ -186,11 +186,13 @@ def load_daily_status():
                 brk_in = str(row.get("Break_In_Time","")).strip()
                 if status == "Off Shift":
                     off_shift.add(name)
-                if brk_in and brk_in != "":
+                if brk_in and brk_in != "" and brk_in != "None":
                     try:
                         naive_dt = datetime.strptime(f"{today} {brk_in}", "%Y-%m-%d %H:%M:%S")
                         aware_dt = TIMEZONE.localize(naive_dt)
-                        active_breaks[name] = aware_dt
+                        # Only restore if break was started today
+                        if aware_dt.date() == datetime.now(TIMEZONE).date():
+                            active_breaks[name] = aware_dt
                     except:
                         pass
         return off_shift, active_breaks
@@ -518,18 +520,28 @@ def render_shift(shift_name):
                     break_in_dt  = st.session_state.active_breaks.pop(key_id)
                     break_out_dt = now_local()
                     duration     = round((break_out_dt - break_in_dt).total_seconds()/60, 1)
+                    # Always clear Google Sheets first before saving log
+                    # This ensures break is marked done even if log save fails
+                    clear_break_in(staff)
+                    # Save log - if fails, break is still cleared
                     save_log(staff, position, shift_name, today_local(),
                              break_in_dt.strftime("%H:%M:%S"),
                              break_out_dt.strftime("%H:%M:%S"), duration)
-                    clear_break_in(staff)
+                    # Force clear from session state again to be safe
+                    if key_id in st.session_state.active_breaks:
+                        st.session_state.active_breaks.pop(key_id)
+                    load_daily_status.clear()
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
             else:
                 col_btn.markdown('<div class="btn-break-in">', unsafe_allow_html=True)
                 if col_btn.button("☕ Break In", key=f"in_{key_id}"):
                     break_time = now_local()
-                    st.session_state.active_breaks[key_id] = break_time
+                    # Save to Google Sheets first
                     save_break_in(staff, break_time)
+                    # Then update session state
+                    st.session_state.active_breaks[key_id] = break_time
+                    load_daily_status.clear()
                     st.rerun()
                 col_btn.markdown('</div>', unsafe_allow_html=True)
         else:
